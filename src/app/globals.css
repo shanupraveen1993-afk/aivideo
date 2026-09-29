@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-dark: #070609;
+    --bg-card: rgba(22, 14, 20, 0.85);
+    --gold-primary: #D4AF37;
+    --gold-bright: #F5E089;
+    --gold-dim: #997B28;
+    --maroon-deep: #2A060C;
+    --maroon-accent: #6E0D1F;
+    --text-gold: #F3E5AB;
+    --glass-border: rgba(212, 175, 55, 0.25);
+  }
+
+  body {
+    background-color: var(--bg-dark);
+    color: #F8F5EE;
+    font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+    overflow-x: hidden;
+  }
+}
+
+/* Maharaja Gold Glow Effects */
+.gold-gradient-text {
+  background: linear-gradient(135deg, #FFF6D1 0%, #D4AF37 50%, #AA7C11 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gold-border-glow {
+  border: 1px solid var(--glass-border);
+  box-shadow: 0 0 20px rgba(212, 175, 55, 0.15), inset 0 0 15px rgba(212, 175, 55, 0.05);
+}
+
+.maharaja-card {
+  background: linear-gradient(145deg, rgba(35, 12, 20, 0.85) 0%, rgba(12, 6, 10, 0.95) 100%);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--glass-border);
+  border-radius: 1rem;
+}
+
+/* HUD Scanning Scanline Animation */
+@keyframes scanline {
+  0% {
+    transform: translateY(-100%);
+  }
+  50% {
+    transform: translateY(1000%);
+  }
+  100% {
+    transform: translateY(-100%);
+  }
+}
+
+.animate-scanline {
+  animation: scanline 3s linear infinite;
+}
+
+/* Diya Flicker Animation */
+@keyframes diyaFlicker {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.97); }
+}
+
+.animate-diya {
+  animation: diyaFlicker 2s ease-in-out infinite;
+}
