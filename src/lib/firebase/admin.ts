@@ -40,7 +40,6 @@ function initFirebaseAdmin() {
     }
   }
 
-  // If real Firebase is missing and mock backend is NOT explicitly allowed, throw error
   if (!AI_CONFIG.ALLOW_MOCK_BACKEND) {
     throw new Error(
       'CRITICAL CONFIGURATION ERROR: Real Firebase credentials are missing or invalid, and ALLOW_MOCK_BACKEND is not set to true. Application cannot start in mock mode.'
@@ -60,7 +59,7 @@ export type MockQueueItem = {
   videoId: string;
   sessionId: string;
   videoUrl?: string;
-  status: 'queued' | 'reserved' | 'playing' | 'completed' | 'cancelled';
+  status: 'queued' | 'reserved' | 'playing' | 'completed' | 'playback_failed' | 'cancelled';
   priority: number;
   repeatCount: number;
   timesPlayed: number;
@@ -152,7 +151,7 @@ export function getMockStore() {
 export const getBackendMode = () => backendMode;
 export const isRealFirebaseAvailable = () => !!firebaseApp;
 
-// Server Signed URL Generator (Fix 2 & 8)
+// Fix 3: Remove silent sample URL fallback when DEMO_MODE != true
 export async function getSignedPlaybackUrl(storagePath: string): Promise<string> {
   const bucket = getStorageBucket();
   if (bucket && storagePath) {
@@ -163,11 +162,18 @@ export async function getSignedPlaybackUrl(storagePath: string): Promise<string>
         expires: Date.now() + 15 * 60 * 1000 // 15 minutes short-lived URL
       });
       return url;
-    } catch (err) {
-      console.warn('Failed to generate real GCS signed URL, falling back to asset URL:', err);
+    } catch (err: any) {
+      console.error('Firebase Storage Signed URL Error:', err);
+      if (!AI_CONFIG.IS_DEMO_MODE) {
+        throw new Error(`Failed to generate signed Storage URL for path: ${storagePath} - ${err.message}`);
+      }
     }
   }
 
-  // Fallback / Demo Mode local asset URL
-  return '/sample-diwali.mp4';
+  // Sample fallback permitted ONLY if DEMO_MODE is true
+  if (AI_CONFIG.IS_DEMO_MODE) {
+    return '/sample-diwali.mp4';
+  }
+
+  throw new Error(`Real Firebase Storage credentials missing or bucket error for storagePath: ${storagePath}`);
 }
