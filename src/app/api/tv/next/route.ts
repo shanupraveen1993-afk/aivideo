@@ -1,5 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getMockStore, hashToken, generateReservationId, MockQueueItem } from '@/lib/firebase/admin';
+import { getDb, getMockStore, hashToken, generateReservationId, getSignedPlaybackUrl, MockQueueItem } from '@/lib/firebase/admin';
+import { FieldValue } from 'firebase-admin/firestore';
+
+// Separate helper for expired reservation cleanup (STEP A)
+async function cleanupExpiredReservations(db: any) {
+  try {
+    const expiredCutoff = new Date(Date.now() - 30000); // 30s lease timeout
+    const expiredSnapshot = await db.collection('liveQueue')
+      .where('screenId', '==', 'maharaja-main')
+      .where('status', '==', 'reserved')
+      .where('reservedAt', '<', expiredCutoff)
+      .get();
+
+    if (!expiredSnapshot.empty) {
+      const batch = db.batch();
+      expiredSnapshot.forEach((doc: any) => {
+        batch.update(doc.ref, {
+          status: 'queued',
+          reservedAt: null,
+          reservedByScreenId: null,
+          reservationId: null
+        });
+      });
+      await batch.commit();
+    }
+  } catch (err) {
+    console.warn('Expired reservation cleanup warning:', err);
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,8 +42,7 @@ export async function GET(req: NextRequest) {
     const token = authHeader.replace('Bearer ', '').trim();
     const tokenHash = hashToken(token);
     const db = getDb();
-    const now = new Date();
-    const nowIso = now.toISOString();
+    const nowIso = new Date().toISOString();
 
     if (db) {
       // Validate device token in Firestore
@@ -27,66 +54,72 @@ export async function GET(req: NextRequest) {
         );
       }
 
-      // Update screen heartbeat
       await db.collection('screens').doc('maharaja-main').update({ lastSeenAt: nowIso });
 
-      // Run Transaction to atomically reserve next queue item
+      // STEP A: Separate Expired Reservation Cleanup
+      await cleanupExpiredReservations(db);
+
+      // STEP B: Transaction (Strict Order: ALL READS FIRST, THEN WRITES)
       const result = await db.runTransaction(async (transaction: any) => {
-        // Step A: Recover expired reservations (>30 seconds old)
-        const expiredSnapshot = await transaction.get(
-          db.collection('liveQueue')
-            .where('screenId', '==', 'maharaja-main')
-            .where('status', '==', 'reserved')
-        );
+        // READ 1: Query next queued item
+        const queueQuery = db.collection('liveQueue')
+          .where('screenId', '==', 'maharaja-main')
+          .where('status', '==', 'queued')
+          .orderBy('createdAt', 'asc')
+          .limit(1);
 
-        expiredSnapshot.forEach((doc: any) => {
-          const data = doc.data();
-          if (data.reservedAt) {
-            const reservedTime = new Date(data.reservedAt).getTime();
-            if (now.getTime() - reservedTime > 30000) {
-              transaction.update(doc.ref, {
-                status: 'queued',
-                reservedAt: null,
-                reservedByScreenId: null,
-                reservationId: null
-              });
-            }
-          }
-        });
-
-        // Step B: Find oldest queued item
-        const queueSnapshot = await transaction.get(
-          db.collection('liveQueue')
-            .where('screenId', '==', 'maharaja-main')
-            .where('status', '==', 'queued')
-            .orderBy('createdAt', 'asc')
-            .limit(1)
-        );
+        const queueSnapshot = await transaction.get(queueQuery);
 
         if (queueSnapshot.empty) {
           return { status: 'idle' };
         }
 
-        const nextDoc = queueSnapshot.docs[0];
-        const nextData = nextDoc.data();
+        const queueDoc = queueSnapshot.docs[0];
+        const queueData = queueDoc.data();
+
+        // READ 2: Query referenced videos document server-side
+        const videoDocRef = db.collection('videos').doc(queueData.videoId);
+        const videoDoc = await transaction.get(videoDocRef);
+
+        if (!videoDoc.exists || videoDoc.data()?.status !== 'ready') {
+          // If video isn't ready, mark queue item cancelled
+          transaction.update(queueDoc.ref, { status: 'cancelled' });
+          return { status: 'idle' };
+        }
+
+        const videoData = videoDoc.data();
         const reservationId = generateReservationId();
 
-        transaction.update(nextDoc.ref, {
+        // WRITE: Update queued -> reserved (ALL READS COMPLETED BEFORE THIS WRITE)
+        transaction.update(queueDoc.ref, {
           status: 'reserved',
-          reservedAt: nowIso,
+          reservedAt: FieldValue.serverTimestamp(),
           reservedByScreenId: 'maharaja-main',
           reservationId
         });
 
         return {
           status: 'play',
-          queueId: nextDoc.id,
+          queueId: queueDoc.id,
           reservationId,
-          videoUrl: nextData.videoUrl || '/sample-diwali.mp4'
+          storagePath: videoData.storagePath
         };
       });
 
-      return NextResponse.json(result);
+      if (result.status === 'idle') {
+        return NextResponse.json({ status: 'idle' });
+      }
+
+      // Generate short-lived signed URL server-side (Fix 2)
+      const signedUrl = await getSignedPlaybackUrl(result.storagePath);
+
+      return NextResponse.json({
+        status: 'play',
+        queueId: result.queueId,
+        reservationId: result.reservationId,
+        videoUrl: signedUrl
+      });
+
     } else {
       // Mock Store Logic
       const mockStore = getMockStore();
@@ -101,10 +134,10 @@ export async function GET(req: NextRequest) {
 
       screen.lastSeenAt = nowIso;
 
-      // Recover expired reservations (>30 seconds)
+      // Recover expired reservations (>30s)
       mockStore.liveQueue.forEach((item: MockQueueItem) => {
         if (item.status === 'reserved' && item.reservedAt) {
-          if (now.getTime() - new Date(item.reservedAt).getTime() > 30000) {
+          if (Date.now() - new Date(item.reservedAt).getTime() > 30000) {
             item.status = 'queued';
             delete item.reservedAt;
             delete item.reservationId;
@@ -121,17 +154,26 @@ export async function GET(req: NextRequest) {
         return NextResponse.json({ status: 'idle' });
       }
 
+      // Find referenced video in mock store
+      const video = mockStore.videos.get(nextItem.videoId);
+      if (!video || video.status !== 'ready') {
+        nextItem.status = 'cancelled';
+        return NextResponse.json({ status: 'idle' });
+      }
+
       const reservationId = generateReservationId();
       nextItem.status = 'reserved';
       nextItem.reservedAt = nowIso;
       nextItem.reservedByScreenId = 'maharaja-main';
       nextItem.reservationId = reservationId;
 
+      const signedUrl = await getSignedPlaybackUrl(video.storagePath);
+
       return NextResponse.json({
         status: 'play',
         queueId: nextItem.id,
         reservationId,
-        videoUrl: nextItem.videoUrl || '/sample-diwali.mp4'
+        videoUrl: signedUrl
       });
     }
   } catch (error: any) {

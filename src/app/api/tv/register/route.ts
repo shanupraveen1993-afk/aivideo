@@ -4,10 +4,20 @@ import { getDb, getMockStore, hashToken, generateDeviceToken } from '@/lib/fireb
 
 export async function POST(req: NextRequest) {
   try {
+    const configuredPin = AI_CONFIG.TV_SETUP_PIN;
+
+    // Fix 4: If TV_SETUP_PIN environment variable is not configured, fail safely
+    if (!configuredPin || configuredPin.trim() === '') {
+      return NextResponse.json(
+        { success: false, error: 'Server configuration error: TV_SETUP_PIN environment variable is missing.' },
+        { status: 500 }
+      );
+    }
+
     const body = await req.json();
     const { setupPin } = body;
 
-    if (!setupPin || setupPin.toString().trim() !== AI_CONFIG.TV_SETUP_PIN) {
+    if (!setupPin || setupPin.toString().trim() !== configuredPin.trim()) {
       return NextResponse.json(
         { success: false, error: 'Invalid Setup PIN' },
         { status: 401 }
@@ -20,7 +30,6 @@ export async function POST(req: NextRequest) {
     const now = new Date().toISOString();
 
     if (db) {
-      // Real Firestore update
       await db.collection('screens').doc('maharaja-main').set({
         id: 'maharaja-main',
         name: 'Maharaja Main Display (Thanjavur)',
@@ -30,7 +39,6 @@ export async function POST(req: NextRequest) {
         createdAt: now
       }, { merge: true });
     } else {
-      // Mock Store update
       const mockStore = getMockStore();
       mockStore.screens.set('maharaja-main', {
         id: 'maharaja-main',

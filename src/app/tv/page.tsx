@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Tv, Volume2, ShieldCheck, Flame, Play, CheckCircle2 } from 'lucide-react';
+import { Sparkles, Tv, Volume2, ShieldCheck, Flame, Play, CheckCircle2, AlertCircle, RefreshCw } from 'lucide-react';
 
 export default function TvPlayerPage() {
   const [deviceToken, setDeviceToken] = useState<string | null>(null);
@@ -9,8 +9,9 @@ export default function TvPlayerPage() {
   const [pinError, setPinError] = useState<string | null>(null);
   const [isRegistering, setIsRegistering] = useState(false);
   
-  // Audio autoplay unlock state
+  // Audio unlock & playback error states
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [playbackError, setPlaybackError] = useState<string | null>(null);
 
   // Playback state
   const [currentPlayback, setCurrentPlayback] = useState<{
@@ -21,7 +22,10 @@ export default function TvPlayerPage() {
 
   const [isPlayingVideo, setIsPlayingVideo] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
-  const pollingRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Fix 5: In-flight guard to prevent overlapping polling requests
+  const pollInFlightRef = useRef(false);
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // Load token from localStorage on mount
   useEffect(() => {
@@ -59,7 +63,6 @@ export default function TvPlayerPage() {
     }
   };
 
-  // Unregister screen (for setup reset)
   const handleResetToken = () => {
     localStorage.removeItem('maharajaDeviceToken');
     setDeviceToken(null);
@@ -68,11 +71,16 @@ export default function TvPlayerPage() {
     setIsPlayingVideo(false);
   };
 
-  // Polling engine for GET /api/tv/next
+  // Fix 5: Non-overlapping recursive polling engine
   useEffect(() => {
     if (!deviceToken || !audioUnlocked || isPlayingVideo) return;
 
+    let isMounted = true;
+
     const pollNextVideo = async () => {
+      if (pollInFlightRef.current || isPlayingVideo) return;
+      pollInFlightRef.current = true;
+
       try {
         const res = await fetch('/api/tv/next', {
           headers: {
@@ -80,8 +88,9 @@ export default function TvPlayerPage() {
           }
         });
 
+        if (!isMounted) return;
+
         if (res.status === 401 || res.status === 403) {
-          // Token invalid or revoked
           handleResetToken();
           return;
         }
@@ -95,34 +104,59 @@ export default function TvPlayerPage() {
             videoUrl: data.videoUrl
           });
           setIsPlayingVideo(true);
-
-          // Notify server of playing status
-          fetch('/api/tv/playing', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              Authorization: `Bearer ${deviceToken}`
-            },
-            body: JSON.stringify({
-              queueId: data.queueId,
-              reservationId: data.reservationId
-            })
-          }).catch(console.error);
         }
       } catch (err) {
         console.warn('TV Polling Network Error (will retry):', err);
+      } finally {
+        pollInFlightRef.current = false;
+        if (isMounted && !isPlayingVideo) {
+          timeoutRef.current = setTimeout(pollNextVideo, 2000);
+        }
       }
     };
 
     pollNextVideo();
-    pollingRef.current = setInterval(pollNextVideo, 2000);
 
     return () => {
-      if (pollingRef.current) clearInterval(pollingRef.current);
+      isMounted = false;
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
   }, [deviceToken, audioUnlocked, isPlayingVideo]);
 
-  // Video playback completion handler
+  // Fix 6: Safe Video Playback Execution with Error Handlers
+  const startVideoPlayback = async () => {
+    if (!videoRef.current || !currentPlayback || !deviceToken) return;
+
+    setPlaybackError(null);
+    try {
+      await videoRef.current.play();
+
+      // Report playing to server ONLY AFTER video.play() succeeds
+      fetch('/api/tv/playing', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${deviceToken}`
+        },
+        body: JSON.stringify({
+          queueId: currentPlayback.queueId,
+          reservationId: currentPlayback.reservationId
+        })
+      }).catch(console.error);
+
+    } catch (err: any) {
+      console.error('Video autoplay blocked or playback failed:', err);
+      setPlaybackError('Autoplay blocked. Press play to unlock screen.');
+    }
+  };
+
+  useEffect(() => {
+    if (isPlayingVideo && currentPlayback) {
+      startVideoPlayback();
+    }
+  }, [isPlayingVideo, currentPlayback]);
+
+  // Video completion handler
   const handleVideoEnded = async () => {
     if (!currentPlayback || !deviceToken) return;
 
@@ -143,10 +177,11 @@ export default function TvPlayerPage() {
     } finally {
       setIsPlayingVideo(false);
       setCurrentPlayback(null);
+      setPlaybackError(null);
     }
   };
 
-  // 1. Setup Screen (PIN entry)
+  // 1. Setup Screen
   if (!deviceToken) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#070609] p-6 font-sans relative overflow-hidden">
@@ -171,11 +206,11 @@ export default function TvPlayerPage() {
               </label>
               <input
                 type="password"
-                maxLength={6}
+                maxLength={10}
                 value={setupPin}
                 onChange={(e) => setSetupPin(e.target.value)}
-                placeholder="482731"
-                className="w-full text-center text-2xl font-mono tracking-widest py-3 px-4 rounded-xl bg-black/60 border border-[#D4AF37]/40 text-[#F3E5AB] focus:outline-none focus:border-[#D4AF37]"
+                placeholder="Enter Setup PIN"
+                className="w-full text-center text-xl font-mono tracking-widest py-3 px-4 rounded-xl bg-black/60 border border-[#D4AF37]/40 text-[#F3E5AB] focus:outline-none focus:border-[#D4AF37]"
                 required
               />
             </div>
@@ -188,22 +223,18 @@ export default function TvPlayerPage() {
 
             <button
               type="submit"
-              disabled={isRegistering || setupPin.length < 4}
+              disabled={isRegistering || setupPin.length === 0}
               className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-semibold uppercase tracking-wider text-sm shadow-lg hover:brightness-110 transition disabled:opacity-50"
             >
               {isRegistering ? 'PAIRING DISPLAY...' : 'PAIR THIS DISPLAY'}
             </button>
           </form>
-
-          <p className="text-[10px] text-gray-500 mt-6">
-            Default test PIN: <code className="text-[#D4AF37]">482731</code> (Configured via Vercel env)
-          </p>
         </div>
       </main>
     );
   }
 
-  // 2. Audio Autoplay Unlock Prompt
+  // 2. Audio Gesture Initialization Screen
   if (!audioUnlocked) {
     return (
       <main className="min-h-screen flex items-center justify-center bg-[#070609] p-6 text-center">
@@ -213,7 +244,7 @@ export default function TvPlayerPage() {
             MAHARAJA DISPLAY READY
           </h2>
           <p className="text-sm text-gray-300 mb-6">
-            Tap below once to unlock full audio autoplay capabilities for Smart TV browsers.
+            Tap below once to unlock full media & audio playback for Smart TV browsers.
           </p>
 
           <button
@@ -235,16 +266,11 @@ export default function TvPlayerPage() {
     );
   }
 
-  // 3. Fullscreen 16:9 Signage Player
+  // 3. Fullscreen Signage Player
   return (
     <main className="fixed inset-0 w-screen h-screen bg-black overflow-hidden flex items-center justify-center select-none">
-      {/* 16:9 Branded Frame Container */}
       <div className="relative w-full h-full max-w-[177.78vh] max-h-[56.25vw] aspect-video bg-[#0B0609] border border-[#D4AF37]/30 flex flex-col justify-between p-6 shadow-2xl overflow-hidden">
         
-        {/* Subtle Background Glow */}
-        <div className="absolute inset-0 bg-radial from-[#6e0d1f]/15 via-transparent to-transparent pointer-events-none" />
-
-        {/* Top Header Bar */}
         <header className="relative z-20 flex justify-between items-center border-b border-[#D4AF37]/20 pb-4">
           <div className="flex items-center gap-3">
             <Flame className="w-7 h-7 text-[#D4AF37] animate-diya" />
@@ -264,10 +290,8 @@ export default function TvPlayerPage() {
           </div>
         </header>
 
-        {/* Center Content Area */}
         <div className="relative z-10 flex-1 flex items-center justify-center my-4 overflow-hidden">
           {isPlayingVideo && currentPlayback ? (
-            /* Active Customer Video Playback (9:16 Vertical Frame inside 16:9 Screen) */
             <div className="relative h-full aspect-[9/16] rounded-xl overflow-hidden border-2 border-[#D4AF37] shadow-[0_0_50px_rgba(212,175,55,0.3)] bg-black">
               <video
                 ref={videoRef}
@@ -275,8 +299,24 @@ export default function TvPlayerPage() {
                 autoPlay
                 playsInline
                 onEnded={handleVideoEnded}
+                onError={() => handleVideoEnded()}
                 className="w-full h-full object-cover"
               />
+
+              {/* Fix 6: Autoplay Error Recovery Overlay */}
+              {playbackError && (
+                <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center p-4 text-center z-30">
+                  <AlertCircle className="w-10 h-10 text-amber-400 mb-2" />
+                  <p className="text-xs text-white mb-4">{playbackError}</p>
+                  <button
+                    onClick={startVideoPlayback}
+                    className="py-2 px-6 rounded-lg bg-[#D4AF37] text-black font-bold text-xs uppercase"
+                  >
+                    PRESS PLAY TO START
+                  </button>
+                </div>
+              )}
+
               <div className="absolute bottom-3 left-3 right-3 bg-black/75 backdrop-blur-md p-2 rounded-lg border border-[#D4AF37]/40 text-center">
                 <p className="text-[10px] uppercase text-[#D4AF37] font-semibold tracking-wider">
                   ⭐ MAHARAJA DIWALI STAR
@@ -287,7 +327,6 @@ export default function TvPlayerPage() {
               </div>
             </div>
           ) : (
-            /* Idle Promotional Screen */
             <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-gradient-to-b from-[#2A060C]/40 to-[#070609]/80 rounded-2xl border border-[#D4AF37]/20 relative">
               <Sparkles className="w-12 h-12 text-[#D4AF37] mb-4 animate-bounce" />
               
@@ -307,7 +346,6 @@ export default function TvPlayerPage() {
           )}
         </div>
 
-        {/* Bottom Ticker Footer */}
         <footer className="relative z-20 flex justify-between items-center border-t border-[#D4AF37]/20 pt-3 text-[11px] text-[#D4AF37]/80">
           <span>✨ MAHARAJA READY-MADE STORE, THANJAVUR</span>
           <span>DIWALI SPECIAL PROMOTION</span>

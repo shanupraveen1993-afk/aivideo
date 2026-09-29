@@ -1,5 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { AI_CONFIG } from './config';
+import { GarmentAnalysisSchema, PersonAnalysisSchema } from './schemas';
 
 function getGenAIClient() {
   const apiKey = AI_CONFIG.PRIMARY_API_KEY;
@@ -14,17 +15,16 @@ function getGenAIClient() {
   }
 }
 
-// 1. Analyze Garment Photos using Gemini
+// 1. Analyze Garment Photos using Gemini + Zod Validation (Fix 12)
 export async function analyzeGarmentImages(imageDataUrls: string[]) {
   const ai = getGenAIClient();
 
   if (!ai || AI_CONFIG.IS_DEMO_MODE) {
-    // Return structured mock analysis for Demo Mode / fallback
-    return {
+    const fallback = {
       valid: true,
       category: "Men's Luxury Ethnic Wear",
       garmentType: "Kurta",
-      coverage: "top_only",
+      coverage: "top_only" as const,
       primaryColor: "Royal Deep Maroon",
       secondaryColors: ["Zari Gold", "Crimson"],
       fabricAppearance: "Pure Banarasi Silk",
@@ -38,6 +38,7 @@ export async function analyzeGarmentImages(imageDataUrls: string[]) {
       },
       operatorMessage: "Garment scan verified successfully."
     };
+    return GarmentAnalysisSchema.parse(fallback);
   }
 
   try {
@@ -58,8 +59,8 @@ Identify:
 3. Coverage (top_only or full_set)
 4. Primary and secondary colors
 5. Fabric appearance & embroidery/pattern details
-6. If top_only, recommend a complementary lower garment (e.g., Kurta -> Churidar/Veshti)
-7. Check if photo clarity/framing is sufficient. If insufficient, set additionalPhotoRequired to true and explain in requestedPhotos.
+6. If top_only, recommend a complementary lower garment
+7. Check if photo clarity/framing is sufficient.
 
 Return STRICT JSON matching this schema:
 {
@@ -86,16 +87,18 @@ Return STRICT JSON matching this schema:
     const text = response.text || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Zod Strict Schema Validation (Fix 12)
+      return GarmentAnalysisSchema.parse(parsed);
     }
     throw new Error('Could not parse JSON from Gemini response');
   } catch (error) {
     console.error('Gemini Garment Analysis Error:', error);
-    return {
+    const fallback = {
       valid: true,
       category: "Men's Ethnic Wear",
       garmentType: "Kurta",
-      coverage: "top_only",
+      coverage: "top_only" as const,
       primaryColor: "Royal Deep Maroon",
       secondaryColors: ["Zari Gold"],
       fabricAppearance: "Banarasi Silk",
@@ -106,24 +109,26 @@ Return STRICT JSON matching this schema:
       complementaryPieces: { recommendedBottom: "Gold Silk Churidar", rationale: "Complements kurta" },
       operatorMessage: "Analysis fallback completed."
     };
+    return GarmentAnalysisSchema.parse(fallback);
   }
 }
 
-// 2. Validate Person Photo using Gemini
+// 2. Validate Person Photo using Gemini + Zod Validation (Fix 12)
 export async function analyzePersonImage(imageDataUrl: string) {
   const ai = getGenAIClient();
 
   if (!ai || AI_CONFIG.IS_DEMO_MODE) {
-    return {
+    const fallback = {
       valid: true,
-      subjectGroup: "adult",
+      subjectGroup: "adult" as const,
       fullBodyVisible: true,
       faceVisible: true,
-      lightingQuality: "excellent",
+      lightingQuality: "excellent" as const,
       additionalPhotoRequired: false,
       requestedPhotos: [],
       operatorMessage: "Customer photo verified cleanly."
     };
+    return PersonAnalysisSchema.parse(fallback);
   }
 
   try {
@@ -159,21 +164,24 @@ Return STRICT JSON:
     const text = response.text || '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[0]);
+      const parsed = JSON.parse(jsonMatch[0]);
+      // Zod Strict Schema Validation (Fix 12)
+      return PersonAnalysisSchema.parse(parsed);
     }
     throw new Error('Could not parse JSON from person analysis');
   } catch (error) {
     console.error('Gemini Person Analysis Error:', error);
-    return {
+    const fallback = {
       valid: true,
-      subjectGroup: "adult",
+      subjectGroup: "adult" as const,
       fullBodyVisible: true,
       faceVisible: true,
-      lightingQuality: "excellent",
+      lightingQuality: "excellent" as const,
       additionalPhotoRequired: false,
       requestedPhotos: [],
       operatorMessage: "Customer photo verified."
     };
+    return PersonAnalysisSchema.parse(fallback);
   }
 }
 
@@ -192,14 +200,15 @@ The customer is wearing a premium ${primaryColor} ${garmentType} featuring ${emb
 Preserve facial identity, skin tone, hairstyle, and exact garment embroidery throughout the entire film.`;
 }
 
-// 4. Quality Assurance Evaluation
+// 4. Quality Assurance Evaluation (Fix 13: Freeze Fake QA)
 export async function runQualityAssurance(masterImageUrl: string, videoUrl: string) {
   return {
-    approved: true,
-    identityAcceptable: true,
-    garmentAcceptable: true,
-    motionAcceptable: true,
-    majorIssues: [],
-    operatorMessage: "Video passed Maharaja AI Quality Assurance."
+    approved: false,
+    qaStatus: "not_implemented",
+    identityAcceptable: false,
+    garmentAcceptable: false,
+    motionAcceptable: false,
+    majorIssues: ["AI Keyframe QA is not implemented yet"],
+    operatorMessage: "AI QA inspection pending operator review."
   };
 }

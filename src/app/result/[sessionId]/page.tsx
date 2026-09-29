@@ -2,15 +2,17 @@
 
 import React, { useState } from 'react';
 import Link from 'next/link';
-import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck } from 'lucide-react';
+import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck, AlertCircle } from 'lucide-react';
 
 export default function ResultPage({ params }: { params: { sessionId: string } }) {
   const [showLiveConsent, setShowLiveConsent] = useState(false);
   const [publicConsent, setPublicConsent] = useState(true);
   const [isGoingLive, setIsGoingLive] = useState(false);
   const [liveSuccess, setLiveSuccess] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
 
   const sessionId = params?.sessionId || 'sample-session';
+  const videoId = 'sample-video';
   const videoUrl = '/sample-diwali.mp4';
 
   const handleDownload = () => {
@@ -25,16 +27,16 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
   const handleConfirmGoLive = async () => {
     if (!publicConsent) return;
     setIsGoingLive(true);
+    setLiveError(null);
 
     try {
+      // 1. Enqueue with minimal identifiers (server verifies consents and ready status)
       const res = await fetch('/api/live/enqueue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          videoId: `vid_${sessionId}`,
-          videoUrl,
-          publicDisplayConsent: true
+          videoId
         })
       });
 
@@ -42,9 +44,11 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
       if (data.success) {
         setLiveSuccess(true);
         setShowLiveConsent(false);
+      } else {
+        setLiveError(data.error || 'Failed to enqueue video');
       }
-    } catch (err) {
-      console.error('Go Live error:', err);
+    } catch (err: any) {
+      setLiveError('Network error triggering Go Live');
     } finally {
       setIsGoingLive(false);
     }
@@ -109,7 +113,7 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
           </Link>
         </div>
 
-        {/* Success Banner if GO LIVE Clicked */}
+        {/* Success / Error Banners */}
         {liveSuccess && (
           <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 text-sm text-left flex items-start gap-3">
             <CheckCircle2 className="w-6 h-6 shrink-0 text-emerald-400 mt-0.5" />
@@ -119,6 +123,13 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
                 Your Maharaja Diwali moment has been added to the big screen. Look at the store display!
               </p>
             </div>
+          </div>
+        )}
+
+        {liveError && (
+          <div className="p-4 rounded-xl bg-red-950/60 border border-red-500/50 text-red-300 text-xs text-left flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 shrink-0 text-red-400 mt-0.5" />
+            <div>{liveError}</div>
           </div>
         )}
       </div>
