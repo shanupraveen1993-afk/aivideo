@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDb, getMockStore, hashToken } from '@/lib/firebase/admin';
+import { getDb, getMockStore } from '@/lib/firebase/admin';
 
 export async function POST(req: NextRequest) {
   try {
-    const authHeader = req.headers.get('authorization');
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-    }
-
-    const token = authHeader.replace('Bearer ', '').trim();
-    const tokenHash = hashToken(token);
     const body = await req.json();
     const { queueId, reservationId } = body;
 
@@ -21,11 +14,6 @@ export async function POST(req: NextRequest) {
     const nowIso = new Date().toISOString();
 
     if (db) {
-      const screenDoc = await db.collection('screens').doc('maharaja-main').get();
-      if (!screenDoc.exists || screenDoc.data()?.tokenHash !== tokenHash) {
-        return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
-      }
-
       const queueDocRef = db.collection('liveQueue').doc(queueId);
       const queueDoc = await queueDocRef.get();
 
@@ -40,11 +28,6 @@ export async function POST(req: NextRequest) {
       });
     } else {
       const mockStore = getMockStore();
-      const screen = mockStore.screens.get('maharaja-main');
-      if (!screen || screen.tokenHash !== tokenHash) {
-        return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
-      }
-
       const item = mockStore.liveQueue.find((i) => i.id === queueId && i.reservationId === reservationId);
       if (!item) {
         return NextResponse.json({ success: false, error: 'Invalid reservation' }, { status: 400 });
