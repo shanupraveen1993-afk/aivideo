@@ -102,6 +102,29 @@ export default function TvPlayerPage() {
     }
   };
 
+  // Playback failure handler: notifies POST /api/live/fail and returns to idle without marking complete
+  const handleVideoError = async () => {
+    if (!currentPlayback) return;
+
+    try {
+      await fetch('/api/live/fail', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queueId: currentPlayback.queueId,
+          reservationId: currentPlayback.reservationId,
+          reason: 'TV Browser playback error'
+        })
+      });
+    } catch (err) {
+      console.error('Failed to notify playback failure:', err);
+    } finally {
+      setIsPlayingVideo(false);
+      setCurrentPlayback(null);
+      setPlaybackError(null);
+    }
+  };
+
   // 1. Audio Unlock Prompt for Smart TV browsers
   if (!audioUnlocked) {
     return (
@@ -169,7 +192,7 @@ export default function TvPlayerPage() {
                 autoPlay
                 playsInline
                 onEnded={handleVideoEnded}
-                onError={() => handleVideoEnded()}
+                onError={handleVideoError}
                 className="w-full h-full object-cover"
               />
 

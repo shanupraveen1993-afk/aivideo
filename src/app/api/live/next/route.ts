@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getMockStore, generateReservationId, getSignedPlaybackUrl, MockQueueItem } from '@/lib/firebase/admin';
+import { Timestamp, FieldValue } from 'firebase-admin/firestore';
 
 // Helper for expired reservation cleanup
 async function cleanupExpiredReservations(db: any) {
   try {
-    const expiredCutoff = new Date(Date.now() - 30000); // 30s lease timeout
+    const expiredCutoff = Timestamp.fromMillis(Date.now() - 30000); // 30s lease timeout
     const expiredSnapshot = await db.collection('liveQueue')
       .where('screenId', '==', 'maharaja-main')
       .where('status', '==', 'reserved')
@@ -59,7 +60,7 @@ export async function GET(req: NextRequest) {
 
         transaction.update(queueDoc.ref, {
           status: 'reserved',
-          reservedAt: nowIso,
+          reservedAt: FieldValue.serverTimestamp(),
           reservedByScreenId: 'maharaja-main',
           reservationId
         });

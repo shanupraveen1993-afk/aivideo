@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck, AlertCircle } from 'lucide-react';
 
@@ -12,8 +12,27 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
   const [liveError, setLiveError] = useState<string | null>(null);
 
   const sessionId = params?.sessionId || 'sample-session';
-  const videoId = 'sample-video';
-  const videoUrl = '/sample-diwali.mp4';
+  const [videoUrl, setVideoUrl] = useState('/sample-diwali.mp4');
+  const [videoId, setVideoId] = useState(`video_${sessionId}`);
+  const [isLoadingVideo, setIsLoadingVideo] = useState(true);
+
+  useEffect(() => {
+    async function loadSessionVideo() {
+      try {
+        const res = await fetch(`/api/video/status?sessionId=${sessionId}`);
+        const data = await res.json();
+        if (data.success && data.videoUrl) {
+          setVideoUrl(data.videoUrl);
+          setVideoId(data.videoId || `video_${sessionId}`);
+        }
+      } catch (err) {
+        console.warn('Could not load session video, using demo fallback:', err);
+      } finally {
+        setIsLoadingVideo(false);
+      }
+    }
+    loadSessionVideo();
+  }, [sessionId]);
 
   const handleDownload = () => {
     const a = document.createElement('a');
@@ -30,7 +49,6 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
     setLiveError(null);
 
     try {
-      // 1. Enqueue with minimal identifiers (server verifies consents and ready status)
       const res = await fetch('/api/live/enqueue', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

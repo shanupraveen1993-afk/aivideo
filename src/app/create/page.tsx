@@ -2,8 +2,10 @@
 
 import React, { useState } from 'react';
 import { Camera, Scan, CheckCircle2, ArrowRight, Sparkles, RefreshCw, AlertCircle, Shirt, User, Check, Eye } from 'lucide-react';
+import { compressImage } from '@/lib/utils/image';
 
 export default function OperatorCreatePage() {
+  const [sessionId] = useState(() => 'mah_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
   const [step, setStep] = useState<'garment' | 'person' | 'master' | 'consent' | 'generating'>('garment');
   const [garmentPhotos, setGarmentPhotos] = useState<string[]>([]);
   const [personPhoto, setPersonPhoto] = useState<string | null>(null);
@@ -22,30 +24,31 @@ export default function OperatorCreatePage() {
   const [isProcessingVideo, setIsProcessingVideo] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
 
-  // 1. Handle Garment Capture & Gemini Analysis Trigger
+  // 1. Handle Garment Capture & Gemini Analysis Trigger with Image Compression
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'garment' | 'person') => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
 
     const file = files[0];
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
+    try {
+      const { dataUrl } = await compressImage(file, 1600, 0.85);
+
       if (target === 'garment') {
         const updated = [...garmentPhotos, dataUrl];
         setGarmentPhotos(updated);
 
-        // Run Gemini Garment Analysis
         setIsAnalyzingGarment(true);
         try {
           const res = await fetch('/api/ai/analyze-garment', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ images: updated })
+            body: JSON.stringify({ images: updated, sessionId })
           });
           const data = await res.json();
           if (data.success) {
             setGarmentAnalysis(data.analysis);
+          } else {
+            alert(data.error || 'Garment analysis failed');
           }
         } catch (err) {
           console.error(err);
@@ -55,17 +58,18 @@ export default function OperatorCreatePage() {
       } else {
         setPersonPhoto(dataUrl);
 
-        // Run Gemini Person Analysis
         setIsAnalyzingPerson(true);
         try {
           const res = await fetch('/api/ai/analyze-person', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ image: dataUrl })
+            body: JSON.stringify({ image: dataUrl, sessionId })
           });
           const data = await res.json();
           if (data.success) {
             setPersonAnalysis(data.analysis);
+          } else {
+            alert(data.error || 'Customer photo analysis failed');
           }
         } catch (err) {
           console.error(err);
@@ -73,8 +77,9 @@ export default function OperatorCreatePage() {
           setIsAnalyzingPerson(false);
         }
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (compressErr) {
+      console.error('Image compression failed:', compressErr);
+    }
   };
 
   // 2. Generate Master Reference Image
@@ -87,7 +92,7 @@ export default function OperatorCreatePage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          sessionId: `session_${Date.now()}`,
+          sessionId,
           garmentAnalysis,
           personAnalysis
         })
@@ -95,6 +100,8 @@ export default function OperatorCreatePage() {
       const data = await res.json();
       if (data.success) {
         setMasterImageUrl(data.masterImageUrl);
+      } else {
+        alert(data.error || 'Master image generation failed');
       }
     } catch (err) {
       console.error(err);
@@ -109,18 +116,16 @@ export default function OperatorCreatePage() {
     setStep('generating');
     setIsProcessingVideo(true);
 
-    const sessionId = `mah_${Date.now()}`;
-
     try {
       setProgressMsg('Initializing Google Veo Async Pipeline...');
       const startRes = await fetch('/api/video/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, garmentAnalysis })
+        body: JSON.stringify({ sessionId, garmentAnalysis, masterImageUrl })
       });
       const startData = await startRes.json();
 
-      if (!startData.success) throw new Error('Start failed');
+      if (!startData.success) throw new Error(startData.error || 'Start failed');
       const jobId = startData.jobId;
 
       const progressSteps = [
@@ -132,16 +137,18 @@ export default function OperatorCreatePage() {
 
       for (let i = 0; i < progressSteps.length; i++) {
         setProgressMsg(progressSteps[i]);
-        await new Promise((r) => setTimeout(r, 1200));
+        await new Promise((r) => setTimeout(r, 1000));
       }
 
-      const statusRes = await fetch(`/api/video/status?jobId=${jobId}`);
+      const statusRes = await fetch(`/api/video/status?jobId=${jobId}&sessionId=${sessionId}`);
       const statusData = await statusRes.json();
 
       if (statusData.success) {
         window.location.href = `/result/${sessionId}`;
+      } else {
+        alert(statusData.error || 'Video generation failed');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
       window.location.href = `/result/${sessionId}`;
     }
@@ -347,7 +354,7 @@ export default function OperatorCreatePage() {
             <div className="space-y-4">
               <div className="relative aspect-[9/16] w-full max-w-xs mx-auto rounded-2xl overflow-hidden border-2 border-[#D4AF37] shadow-2xl bg-black">
                 <img
-                  src={garmentPhotos[0] || personPhoto || '/sample-master.jpg'}
+                  src={masterImageUrl || '/sample-master.jpg'}
                   alt="Master Reference"
                   className="w-full h-full object-cover"
                 />

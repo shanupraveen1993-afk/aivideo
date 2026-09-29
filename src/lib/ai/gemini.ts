@@ -15,11 +15,14 @@ function getGenAIClient() {
   }
 }
 
-// 1. Analyze Garment Photos using Gemini + Zod Validation (Fix 12)
+// 1. Analyze Garment Photos using Gemini + Zod Validation
 export async function analyzeGarmentImages(imageDataUrls: string[]) {
   const ai = getGenAIClient();
 
-  if (!ai || AI_CONFIG.IS_DEMO_MODE) {
+  if (AI_CONFIG.IS_DEMO_MODE || !ai) {
+    if (!AI_CONFIG.IS_DEMO_MODE && !ai) {
+      throw new Error('Gemini API key is missing or invalid outside Demo Mode.');
+    }
     const fallback = {
       valid: true,
       category: "Men's Luxury Ethnic Wear",
@@ -88,12 +91,14 @@ Return STRICT JSON matching this schema:
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Zod Strict Schema Validation (Fix 12)
       return GarmentAnalysisSchema.parse(parsed);
     }
     throw new Error('Could not parse JSON from Gemini response');
   } catch (error) {
     console.error('Gemini Garment Analysis Error:', error);
+    if (!AI_CONFIG.IS_DEMO_MODE) {
+      throw error;
+    }
     const fallback = {
       valid: true,
       category: "Men's Ethnic Wear",
@@ -113,11 +118,14 @@ Return STRICT JSON matching this schema:
   }
 }
 
-// 2. Validate Person Photo using Gemini + Zod Validation (Fix 12)
+// 2. Validate Person Photo using Gemini + Zod Validation
 export async function analyzePersonImage(imageDataUrl: string) {
   const ai = getGenAIClient();
 
-  if (!ai || AI_CONFIG.IS_DEMO_MODE) {
+  if (AI_CONFIG.IS_DEMO_MODE || !ai) {
+    if (!AI_CONFIG.IS_DEMO_MODE && !ai) {
+      throw new Error('Gemini API key is missing or invalid outside Demo Mode.');
+    }
     const fallback = {
       valid: true,
       subjectGroup: "adult" as const,
@@ -165,12 +173,14 @@ Return STRICT JSON:
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (jsonMatch) {
       const parsed = JSON.parse(jsonMatch[0]);
-      // Zod Strict Schema Validation (Fix 12)
       return PersonAnalysisSchema.parse(parsed);
     }
     throw new Error('Could not parse JSON from person analysis');
   } catch (error) {
     console.error('Gemini Person Analysis Error:', error);
+    if (!AI_CONFIG.IS_DEMO_MODE) {
+      throw error;
+    }
     const fallback = {
       valid: true,
       subjectGroup: "adult" as const,
