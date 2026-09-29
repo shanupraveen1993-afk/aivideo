@@ -1,0 +1,41 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "liveQueue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "screenId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "createdAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "liveQueue",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "screenId",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "reservedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
