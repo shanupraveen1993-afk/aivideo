@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Sparkles, Tv, Volume2, Flame, CheckCircle2, AlertCircle } from 'lucide-react';
+import { Sparkles, Volume2, Flame, CheckCircle2, AlertCircle } from 'lucide-react';
 
 export default function TvPlayerPage() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
@@ -19,7 +19,7 @@ export default function TvPlayerPage() {
   const pollInFlightRef = useRef(false);
   const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Non-overlapping polling engine for GET /api/tv/next
+  // Polling engine: checks GET /api/live/next every 2 seconds when idle
   useEffect(() => {
     if (!audioUnlocked || isPlayingVideo) return;
 
@@ -30,7 +30,7 @@ export default function TvPlayerPage() {
       pollInFlightRef.current = true;
 
       try {
-        const res = await fetch('/api/tv/next');
+        const res = await fetch('/api/live/next');
         if (!isMounted) return;
 
         const data = await res.json();
@@ -61,26 +61,15 @@ export default function TvPlayerPage() {
     };
   }, [audioUnlocked, isPlayingVideo]);
 
-  // Safe Video Playback Execution
+  // Video Playback Execution
   const startVideoPlayback = async () => {
     if (!videoRef.current || !currentPlayback) return;
 
     setPlaybackError(null);
     try {
       await videoRef.current.play();
-
-      // Report playing status to server after video.play() succeeds
-      fetch('/api/tv/playing', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          queueId: currentPlayback.queueId,
-          reservationId: currentPlayback.reservationId
-        })
-      }).catch(console.error);
-
     } catch (err: any) {
-      console.error('Video autoplay blocked or playback failed:', err);
+      console.error('Video playback error / autoplay blocked:', err);
       setPlaybackError('Autoplay blocked. Press play to start video.');
     }
   };
@@ -91,12 +80,12 @@ export default function TvPlayerPage() {
     }
   }, [isPlayingVideo, currentPlayback]);
 
-  // Video completion handler
+  // Completion handler: notifies POST /api/live/complete and returns to idle
   const handleVideoEnded = async () => {
     if (!currentPlayback) return;
 
     try {
-      await fetch('/api/tv/complete', {
+      await fetch('/api/live/complete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -144,12 +133,12 @@ export default function TvPlayerPage() {
     );
   }
 
-  // 2. Direct 16:9 Signage Player Screen
+  // 2. Fullscreen 16:9 Signage Player Screen (with 9:16 Vertical Video Centered)
   return (
     <main className="fixed inset-0 w-screen h-screen bg-black overflow-hidden flex items-center justify-center select-none">
       <div className="relative w-full h-full max-w-[177.78vh] max-h-[56.25vw] aspect-video bg-[#0B0609] border border-[#D4AF37]/30 flex flex-col justify-between p-6 shadow-2xl overflow-hidden">
         
-        {/* Top Bar */}
+        {/* Top Header */}
         <header className="relative z-20 flex justify-between items-center border-b border-[#D4AF37]/20 pb-4">
           <div className="flex items-center gap-3">
             <Flame className="w-7 h-7 text-[#D4AF37] animate-diya" />
@@ -172,6 +161,7 @@ export default function TvPlayerPage() {
         {/* Player Body */}
         <div className="relative z-10 flex-1 flex items-center justify-center my-4 overflow-hidden">
           {isPlayingVideo && currentPlayback ? (
+            /* 9:16 Vertical Video Frame Centered Inside 16:9 Shell */
             <div className="relative h-full aspect-[9/16] rounded-xl overflow-hidden border-2 border-[#D4AF37] shadow-[0_0_50px_rgba(212,175,55,0.3)] bg-black">
               <video
                 ref={videoRef}
@@ -206,6 +196,7 @@ export default function TvPlayerPage() {
               </div>
             </div>
           ) : (
+            /* Maharaja Idle Promotional Advertisement */
             <div className="w-full h-full flex flex-col items-center justify-center text-center p-8 bg-gradient-to-b from-[#2A060C]/40 to-[#070609]/80 rounded-2xl border border-[#D4AF37]/20 relative">
               <Sparkles className="w-12 h-12 text-[#D4AF37] mb-4 animate-bounce" />
               
