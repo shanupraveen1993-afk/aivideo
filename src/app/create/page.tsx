@@ -4,6 +4,20 @@ import React, { useState } from 'react';
 import { Camera, Scan, CheckCircle2, ArrowRight, Sparkles, RefreshCw, Shirt, User, Check, Copy, Download, Upload, Video, Film, Image as ImageIcon } from 'lucide-react';
 import { compressImage } from '@/lib/utils/image';
 
+async function parseJsonResponse(res: Response) {
+  const contentType = res.headers.get('content-type') || '';
+  if (!res.ok) {
+    const message = contentType.includes('application/json')
+      ? (await res.json()).error
+      : await res.text();
+    throw new Error(message || `HTTP ${res.status}`);
+  }
+  if (!contentType.includes('application/json')) {
+    throw new Error(`Expected JSON but received ${contentType}`);
+  }
+  return await res.json();
+}
+
 export default function OperatorCreatePage() {
   const [sessionId] = useState(() => 'mah_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
   const [step, setStep] = useState<'garment' | 'person' | 'master' | 'videokit'>('garment');
@@ -29,7 +43,7 @@ export default function OperatorCreatePage() {
   const [copyMasterPromptSuccess, setCopyMasterPromptSuccess] = useState(false);
   const [copyVideoPromptSuccess, setCopyVideoPromptSuccess] = useState(false);
 
-  // 1. Handle Garment Photo Upload by Slot Index (0: Front, 1: Detail, 2: Additional View)
+  // 1. Handle Garment Photo Upload by Slot Index
   const handleGarmentSlotUpload = async (e: React.ChangeEvent<HTMLInputElement>, slotIdx: number) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -48,7 +62,7 @@ export default function OperatorCreatePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ images: activeGarmentPhotos, sessionId })
         });
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         if (data.success) {
           setGarmentAnalysis(data.analysis);
         }
@@ -78,7 +92,7 @@ export default function OperatorCreatePage() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ image: dataUrl, sessionId })
         });
-        const data = await res.json();
+        const data = await parseJsonResponse(res);
         if (data.success) {
           setPersonAnalysis(data.analysis);
         }
@@ -154,17 +168,24 @@ Premium festive commercial look, sharp focus, cinematic depth and warm color gra
           contentType
         })
       });
-      const signedData = await signedRes.json();
-      const storagePath = signedData.storagePath || `sessions/${sessionId}/master/master.jpg`;
 
+      const signedData = await parseJsonResponse(signedRes);
+
+      if (!signedData.success || !signedData.directUpload || !signedData.uploadUrl) {
+        throw new Error('Firebase direct master image upload is unavailable. Check Firebase Storage configuration.');
+      }
+
+      const storagePath = signedData.storagePath || `sessions/${sessionId}/master/master.jpg`;
       const { dataUrl } = await compressImage(file, 1600, 0.85);
 
-      if (signedData.success && signedData.directUpload && signedData.uploadUrl) {
-        await fetch(signedData.uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': contentType },
-          body: file
-        });
+      const putRes = await fetch(signedData.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file
+      });
+
+      if (!putRes.ok) {
+        throw new Error(`Direct Storage master upload failed: ${putRes.status}`);
       }
 
       const completeRes = await fetch('/api/upload/master-complete', {
@@ -176,7 +197,8 @@ Premium festive commercial look, sharp focus, cinematic depth and warm color gra
           masterImageUrl: dataUrl
         })
       });
-      const completeData = await completeRes.json();
+
+      const completeData = await parseJsonResponse(completeRes);
 
       setMasterImageUrl(completeData.masterImageUrl || dataUrl);
     } catch (err: any) {
@@ -207,35 +229,24 @@ Premium festive commercial look, sharp focus, cinematic depth and warm color gra
           contentType
         })
       });
-      const signedData = await signedRes.json();
+
+      const signedData = await parseJsonResponse(signedRes);
+
+      if (!signedData.success || !signedData.directUpload || !signedData.uploadUrl) {
+        throw new Error('Firebase direct video upload is unavailable. Check Firebase Storage configuration.');
+      }
+
       const storagePath = signedData.storagePath || `sessions/${sessionId}/video/final.mp4`;
 
-      let uploadedVideoUrl: string | null = null;
+      setProgressMsg('Uploading video directly to Firebase Storage...');
+      const putRes = await fetch(signedData.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: file
+      });
 
-      if (signedData.success && signedData.directUpload && signedData.uploadUrl) {
-        setProgressMsg('Uploading video directly to Storage...');
-        const putRes = await fetch(signedData.uploadUrl, {
-          method: 'PUT',
-          headers: { 'Content-Type': contentType },
-          body: file
-        });
-
-        if (!putRes.ok) {
-          throw new Error('Direct Storage video upload failed with status ' + putRes.status);
-        }
-      } else {
-        setProgressMsg('Uploading video file...');
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('sessionId', sessionId);
-
-        const uploadRes = await fetch('/api/upload/video', {
-          method: 'POST',
-          body: formData
-        });
-        const uploadData = await uploadRes.json();
-        if (!uploadData.success) throw new Error(uploadData.error || 'Video upload failed');
-        uploadedVideoUrl = uploadData.videoUrl;
+      if (!putRes.ok) {
+        throw new Error(`Direct Storage video upload failed: ${putRes.status}`);
       }
 
       setProgressMsg('Finalizing Diwali Commercial Film...');
@@ -244,11 +255,11 @@ Premium festive commercial look, sharp focus, cinematic depth and warm color gra
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          storagePath,
-          videoUrl: uploadedVideoUrl
+          storagePath
         })
       });
-      const completeData = await completeRes.json();
+
+      const completeData = await parseJsonResponse(completeRes);
 
       if (!completeData.success) {
         throw new Error(completeData.error || 'Failed to complete video registration.');
