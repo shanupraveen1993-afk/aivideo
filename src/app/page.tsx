@@ -100,7 +100,7 @@ export default function LandingPage() {
             </div>
             <h3 className="text-xl font-serif font-bold text-[#F3E5AB] mb-2">2. AI Styling & Film</h3>
             <p className="text-sm text-gray-300 leading-relaxed">
-              Gemini synthesizes a master fashion reference image and generates an 8-second Diwali video with a Tamil greeting.
+              Gemini synthesizes a master fashion reference image and generates a 6-second Diwali video with a Tamil greeting.
             </p>
           </div>
 

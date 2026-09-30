@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { buildVideoPrompt } from '@/lib/ai/gemini';
 import { AI_CONFIG } from '@/lib/ai/config';
-import { getDb, getMockStore } from '@/lib/firebase/admin';
+import { getDb, getMockStore, getStorageBucket } from '@/lib/firebase/admin';
 import { GoogleGenAI } from '@google/genai';
 
 function getGenAIClient() {
@@ -53,9 +53,39 @@ export async function POST(req: NextRequest) {
           config: videoConfig
         };
 
-        // Pass approved master image as actual image input to Veo
+        // Pass approved master image as actual image input to Veo (dataUrl, Storage path, or signed URL)
+        let masterBase64: string | null = null;
+
         if (masterImageUrl && masterImageUrl.startsWith('data:image')) {
-          const masterBase64 = masterImageUrl.split(',')[1];
+          masterBase64 = masterImageUrl.split(',')[1];
+        } else {
+          // Attempt read from Firebase Storage
+          const bucket = getStorageBucket();
+          if (bucket) {
+            try {
+              const storagePath = `sessions/${sessionId}/master/master.jpg`;
+              const [buffer] = await bucket.file(storagePath).download();
+              masterBase64 = buffer.toString('base64');
+            } catch (stErr) {
+              console.warn('Storage master image download warning:', stErr);
+            }
+          }
+
+          // Fallback fetch signed URL if storage download didn't return
+          if (!masterBase64 && masterImageUrl && masterImageUrl.startsWith('http')) {
+            try {
+              const fetchRes = await fetch(masterImageUrl);
+              if (fetchRes.ok) {
+                const buffer = Buffer.from(await fetchRes.arrayBuffer());
+                masterBase64 = buffer.toString('base64');
+              }
+            } catch (netErr) {
+              console.warn('Signed URL fetch fallback error:', netErr);
+            }
+          }
+        }
+
+        if (masterBase64) {
           generateParams.image = {
             inlineData: {
               mimeType: 'image/jpeg',

@@ -68,33 +68,16 @@ Preserve exact face identity, hairstyle, dress color, embroidery details, and he
 
         let imageBase64: string | null = null;
 
-        // Try generateImages or generateContent with image model
-        try {
-          const imagenResponse = await ai.models.generateImages({
-            model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002',
-            prompt,
-            config: {
-              numberOfImages: 1,
-              outputMimeType: 'image/jpeg',
-              aspectRatio: '9:16'
-            }
-          });
+        // Multimodal image synthesis passing person & garment reference photo parts
+        const genResponse = await ai.models.generateContent({
+          model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
+          contents
+        });
 
-          const generatedImage = imagenResponse.generatedImages?.[0];
-          if (generatedImage?.image?.imageBytes) {
-            imageBase64 = generatedImage.image.imageBytes;
-          }
-        } catch (imgErr) {
-          console.warn('generateImages call fallback to generateContent:', imgErr);
-          const genResponse = await ai.models.generateContent({
-            model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
-            contents
-          });
-          const candidate = genResponse.candidates?.[0];
-          const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
-          if (part?.inlineData?.data) {
-            imageBase64 = part.inlineData.data;
-          }
+        const candidate = genResponse.candidates?.[0];
+        const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
+        if (part?.inlineData?.data) {
+          imageBase64 = part.inlineData.data;
         }
 
         if (!imageBase64) {

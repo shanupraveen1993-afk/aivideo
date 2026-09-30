@@ -404,7 +404,7 @@ export default function OperatorCreatePage() {
                 className="w-5 h-5 mt-0.5 accent-[#D4AF37]"
               />
               <span className="text-xs text-gray-200 leading-relaxed">
-                I authorize Maharaja Ready-Made Store to analyze my photos and generate a personalized 8-second AI Diwali video featuring my purchased garment.
+                I authorize Maharaja Ready-Made Store to analyze my photos and generate a personalized 6-second AI Diwali video featuring my purchased garment.
               </span>
             </label>
           </div>

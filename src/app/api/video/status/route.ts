@@ -79,10 +79,30 @@ export async function GET(req: NextRequest) {
             });
           }
 
-          // Operation complete: extract generated MP4
+          // Operation complete: extract generated MP4 using official ai.files.download() or buffer fallback
           const generatedVideo = operation.response?.generatedVideos?.[0]?.video;
-          if (generatedVideo?.videoBytes) {
-            const fileBuffer = Buffer.from(generatedVideo.videoBytes, 'base64');
+          let fileBuffer: Buffer | null = null;
+
+          if (generatedVideo) {
+            if (generatedVideo.videoBytes) {
+              fileBuffer = Buffer.from(generatedVideo.videoBytes, 'base64');
+            } else {
+              try {
+                const videoRef = generatedVideo.name || generatedVideo.uri || generatedVideo;
+                const fileResponse = await (ai.files as any).download({ file: videoRef });
+                const arrayBuf = await fileResponse.arrayBuffer();
+                fileBuffer = Buffer.from(arrayBuf);
+              } catch (dlErr) {
+                console.warn('ai.files.download fallback error:', dlErr);
+                if (generatedVideo.uri && generatedVideo.uri.startsWith('http')) {
+                  const fetchRes = await fetch(generatedVideo.uri);
+                  fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
+                }
+              }
+            }
+          }
+
+          if (fileBuffer) {
             const storagePath = `sessions/${targetSessionId}/video/final.mp4`;
 
             const bucket = getStorageBucket();
@@ -92,7 +112,7 @@ export async function GET(req: NextRequest) {
               const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 24 * 60 * 60 * 1000 });
               videoUrl = signedUrl;
             } else {
-              videoUrl = `data:video/mp4;base64,${generatedVideo.videoBytes}`;
+              videoUrl = `data:video/mp4;base64,${fileBuffer.toString('base64')}`;
             }
 
             status = 'ready';
