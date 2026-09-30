@@ -11,6 +11,8 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
   const [liveSuccess, setLiveSuccess] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  const [queueId, setQueueId] = useState<string | null>(null);
+  const [liveQueueStatus, setLiveQueueStatus] = useState<'queued' | 'reserved' | 'playing' | 'completed' | 'playback_failed'>('queued');
 
   useEffect(() => {
     if (!liveSuccess) return;
@@ -26,6 +28,42 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
     }, 1000);
     return () => clearInterval(interval);
   }, [liveSuccess]);
+
+  // Poll /api/live/status after 5-second countdown reaches 0
+  useEffect(() => {
+    if (!liveSuccess || !queueId || countdownSeconds !== 0) return;
+
+    let isMounted = true;
+    let pollTimer: NodeJS.Timeout;
+
+    async function pollQueueStatus() {
+      try {
+        const res = await fetch(`/api/live/status?queueId=${queueId}`);
+        const data = await res.json();
+        if (!isMounted) return;
+
+        if (data.success && data.status) {
+          setLiveQueueStatus(data.status);
+          if (data.status === 'completed' || data.status === 'playback_failed') {
+            return;
+          }
+        }
+      } catch (err) {
+        console.warn('Error polling live status:', err);
+      }
+
+      if (isMounted) {
+        pollTimer = setTimeout(pollQueueStatus, 2000);
+      }
+    }
+
+    pollQueueStatus();
+
+    return () => {
+      isMounted = false;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
+  }, [liveSuccess, queueId, countdownSeconds]);
 
   const sessionId = params?.sessionId || 'sample-session';
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -96,6 +134,8 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
 
       const data = await res.json();
       if (data.success) {
+        if (data.queueId) setQueueId(data.queueId);
+        setLiveQueueStatus('queued');
         setLiveSuccess(true);
         setShowLiveConsent(false);
       } else {
@@ -107,6 +147,7 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
       setIsGoingLive(false);
     }
   };
+
 
   return (
     <main className="min-h-screen bg-[#070609] text-[#F8F5EE] p-4 md:p-8 font-sans max-w-lg mx-auto relative">
@@ -191,17 +232,28 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
               </div>
               {countdownSeconds !== null && (
                 <span className="px-2.5 py-1 rounded-full bg-[#D4AF37] text-black font-mono font-bold text-xs animate-pulse">
-                  {countdownSeconds > 0 ? `LIVE IN ${countdownSeconds}s` : '📺 LIVE NOW ON TV'}
+                  {countdownSeconds > 0
+                    ? `LIVE IN ${countdownSeconds}s`
+                    : (liveQueueStatus === 'reserved' || liveQueueStatus === 'playing')
+                    ? '📺 LIVE NOW ON TV'
+                    : liveQueueStatus === 'completed'
+                    ? '✅ COMPLETED'
+                    : '⏳ WAITING FOR MAHARAJA SCREEN...'}
                 </span>
               )}
             </div>
             <p className="text-xs text-emerald-300/90 leading-relaxed">
               {countdownSeconds && countdownSeconds > 0 
                 ? `Preparing live stream... Look at the Maharaja showroom TV in ${countdownSeconds} seconds!`
-                : 'Your video is now playing on the Maharaja store display screen!'}
+                : (liveQueueStatus === 'reserved' || liveQueueStatus === 'playing')
+                ? 'Your video is now playing live on the Maharaja store display screen!'
+                : liveQueueStatus === 'completed'
+                ? 'Your video has completed playing on the TV screen.'
+                : 'Waiting for Maharaja screen to start playing your video...'}
             </p>
           </div>
         )}
+
 
         {liveError && (
           <div className="p-4 rounded-xl bg-red-950/60 border border-red-500/50 text-red-300 text-xs text-left flex items-start gap-3">
