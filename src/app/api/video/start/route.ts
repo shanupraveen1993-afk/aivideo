@@ -87,10 +87,8 @@ export async function POST(req: NextRequest) {
 
         if (masterBase64) {
           generateParams.image = {
-            inlineData: {
-              mimeType: 'image/jpeg',
-              data: masterBase64
-            }
+            imageBytes: masterBase64,
+            mimeType: 'image/jpeg'
           };
         }
 

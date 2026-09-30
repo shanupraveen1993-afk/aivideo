@@ -3,6 +3,8 @@ import { runQualityAssurance } from '@/lib/ai/gemini';
 import { AI_CONFIG } from '@/lib/ai/config';
 import { getDb, getMockStore, getStorageBucket } from '@/lib/firebase/admin';
 import { GoogleGenAI } from '@google/genai';
+import fs from 'fs';
+import path from 'path';
 
 function getGenAIClient() {
   const apiKey = AI_CONFIG.PRIMARY_API_KEY;
@@ -17,7 +19,7 @@ function getGenAIClient() {
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url);
-    const jobId = searchParams.get('jobId');
+    let jobId = searchParams.get('jobId');
     const sessionId = searchParams.get('sessionId');
 
     if (!jobId && !sessionId) {
@@ -34,29 +36,34 @@ export async function GET(req: NextRequest) {
     let operationName: string | null = null;
 
     if (db) {
-      let sessionDoc = null;
-      let jobDoc = null;
-
-      if (jobId) {
-        jobDoc = await db.collection('generationJobs').doc(jobId).get();
-        if (jobDoc.exists) {
-          operationName = jobDoc.data()?.operationName || null;
-          targetSessionId = jobDoc.data()?.sessionId || targetSessionId;
+      // 1. Fetch Session Doc first (to resolve jobId if only sessionId is provided)
+      const sessionDoc = await db.collection('sessions').doc(targetSessionId).get();
+      if (sessionDoc.exists) {
+        const sData = sessionDoc.data();
+        if (sData?.videoUrl) videoUrl = sData.videoUrl;
+        if (sData?.videoStatus) status = sData.videoStatus;
+        if (!jobId && sData?.jobId) {
+          jobId = sData.jobId;
         }
       }
 
-      sessionDoc = await db.collection('sessions').doc(targetSessionId).get();
-      if (sessionDoc.exists) {
-        const data = sessionDoc.data();
-        if (data?.videoUrl) videoUrl = data.videoUrl;
-        if (data?.videoStatus) status = data.videoStatus;
+      // 2. Fetch Generation Job Doc to retrieve operationName
+      if (jobId) {
+        const jobDoc = await db.collection('generationJobs').doc(jobId).get();
+        if (jobDoc.exists) {
+          operationName = jobDoc.data()?.operationName || null;
+          if (!sessionId) {
+            targetSessionId = jobDoc.data()?.sessionId || targetSessionId;
+          }
+        }
       }
     } else {
       const mockStore = getMockStore();
       const session = mockStore.sessions.get(targetSessionId);
-      if (session && session.videoUrl) {
-        videoUrl = session.videoUrl;
-        status = session.videoStatus || 'ready';
+      if (session) {
+        if (session.videoUrl) videoUrl = session.videoUrl;
+        if (session.videoStatus) status = session.videoStatus;
+        if (!jobId && session.jobId) jobId = session.jobId;
       }
     }
 
@@ -79,7 +86,7 @@ export async function GET(req: NextRequest) {
             });
           }
 
-          // Operation complete: extract generated MP4 using official ai.files.download() or buffer fallback
+          // Operation complete: download generated MP4 to temp file on Vercel
           const generatedVideo = operation.response?.generatedVideos?.[0]?.video;
           let fileBuffer: Buffer | null = null;
 
@@ -87,16 +94,27 @@ export async function GET(req: NextRequest) {
             if (generatedVideo.videoBytes) {
               fileBuffer = Buffer.from(generatedVideo.videoBytes, 'base64');
             } else {
+              const tempFileName = `veo_${jobId || targetSessionId}_${Date.now()}.mp4`;
+              const tempFilePath = path.join('/tmp', tempFileName);
+
               try {
                 const videoRef = generatedVideo.name || generatedVideo.uri || generatedVideo;
-                const fileResponse = await (ai.files as any).download({ file: videoRef });
-                const arrayBuf = await fileResponse.arrayBuffer();
-                fileBuffer = Buffer.from(arrayBuf);
+                await (ai.files as any).download({
+                  file: videoRef,
+                  destination: tempFilePath
+                });
+
+                if (fs.existsSync(tempFilePath)) {
+                  fileBuffer = fs.readFileSync(tempFilePath);
+                  try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                }
               } catch (dlErr) {
-                console.warn('ai.files.download fallback error:', dlErr);
+                console.warn('ai.files.download temp file error:', dlErr);
                 if (generatedVideo.uri && generatedVideo.uri.startsWith('http')) {
                   const fetchRes = await fetch(generatedVideo.uri);
-                  fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
+                  if (fetchRes.ok) {
+                    fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
+                  }
                 }
               }
             }

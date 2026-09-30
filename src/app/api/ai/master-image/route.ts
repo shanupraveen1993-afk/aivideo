@@ -81,15 +81,10 @@ Preserve exact face identity, hairstyle, dress color, embroidery details, and he
         }
 
         if (!imageBase64) {
-          // If model did not return image bytes, fallback to processed reference image or error
-          if (personPhoto) {
-            masterImageUrl = personPhoto;
-          } else {
-            throw new Error('Gemini image generation model did not return an image payload.');
-          }
-        } else {
-          masterImageUrl = `data:image/jpeg;base64,${imageBase64}`;
+          throw new Error('Gemini image generation model failed to return a valid master image payload.');
         }
+
+        masterImageUrl = `data:image/jpeg;base64,${imageBase64}`;
 
         // Store privately in Firebase Storage (public: false)
         const bucket = getStorageBucket();
