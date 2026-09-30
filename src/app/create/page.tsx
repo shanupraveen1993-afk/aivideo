@@ -365,19 +365,91 @@ export default function OperatorCreatePage() {
                 </div>
               </div>
 
-              <div className="maharaja-card p-4 rounded-xl border border-[#D4AF37]/30 text-xs text-gray-300 space-y-1">
-                <p className="text-[#D4AF37] font-bold">OPERATOR VERIFICATION CHECKLIST:</p>
-                <p>✓ Customer identity & facial features locked</p>
-                <p>✓ Purchased garment embroidery & colors preserved</p>
-                <p>✓ Complementary lower garment styled accurately</p>
+              <div className="maharaja-card p-4 rounded-xl border border-[#D4AF37]/30 text-xs text-gray-300 space-y-2">
+                <p className="text-[#D4AF37] font-bold uppercase tracking-wider">OPTIONAL: PHONE GENERATION HELPER</p>
+                <p className="text-[11px] text-gray-300">
+                  Copy this prompt & download your reference image to generate on your phone's Gemini Pro app, then upload the finished video below.
+                </p>
+
+                <div className="grid grid-cols-2 gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const prompt = `Photorealistic 6-second vertical 9:16 full-body cinematic commercial video. Using the exact facial features and identity from the uploaded user reference photo, seamlessly composite her wearing the ${garmentAnalysis?.primaryColor || 'selected'} ${garmentAnalysis?.garmentType || 'outfit'} from the uploaded product photo as a complete, full-length outfit. The action starts with her walking smoothly forward toward the camera from a vibrant, colorful, and fully decorated Diwali festive background filled with bright traditional lights, floral arrangements, and festive decor. Strict full-length head-to-toe framing is maintained throughout to show the complete silhouette and length of the dress. She smiles warmly, holding a glowing clay diya lamp gracefully in her hands. Professional festive makeup, glowing soft skin highlights, and traditional styling matching her features. Embedded Tamil voiceover saying: "அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!". High-end commercial color grading, sharp focus, 4K vertical.`;
+                      navigator.clipboard.writeText(prompt);
+                      alert('✓ AI Commercial Prompt copied to clipboard!');
+                    }}
+                    className="py-2.5 px-3 rounded-lg bg-black/80 border border-[#D4AF37]/50 text-[#F3E5AB] font-semibold text-[11px] flex items-center justify-center gap-1.5 hover:bg-black transition"
+                  >
+                    📋 COPY PROMPT
+                  </button>
+
+                  <a
+                    href={masterImageUrl || '/sample-master.jpg'}
+                    download={`Maharaja-Master-${sessionId}.jpg`}
+                    className="py-2.5 px-3 rounded-lg bg-black/80 border border-[#D4AF37]/50 text-[#F3E5AB] font-semibold text-[11px] flex items-center justify-center gap-1.5 hover:bg-black transition text-center"
+                  >
+                    📥 DOWNLOAD IMAGE
+                  </a>
+                </div>
               </div>
 
-              <button
-                onClick={() => setStep('consent')}
-                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm shadow-xl hover:scale-105 transition flex items-center justify-center gap-2"
-              >
-                APPROVE MASTER & PROCEED TO VIDEO <Check className="w-5 h-5" />
-              </button>
+              {/* Direct Video Upload Section */}
+              <div className="p-4 rounded-xl bg-[#6e0d1f]/30 border-2 border-dashed border-[#D4AF37]/50 text-center space-y-3">
+                <p className="text-xs font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
+                  🎬 UPLOAD GENERATED VIDEO (.MP4)
+                </p>
+                <p className="text-[11px] text-gray-300">
+                  Got your video from phone? Upload it here to immediately enable Download & Go Live TV playback.
+                </p>
+
+                <label className="inline-flex py-3 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-xs shadow-lg cursor-pointer hover:brightness-110 transition items-center justify-center gap-2">
+                  <span>SELECT & UPLOAD VIDEO FILE</span>
+                  <input
+                    type="file"
+                    accept="video/mp4,video/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const formData = new FormData();
+                      formData.append('file', file);
+                      formData.append('sessionId', sessionId);
+
+                      try {
+                        setIsProcessingVideo(true);
+                        setStep('generating');
+                        setProgressMsg('Uploading generated video file...');
+                        const res = await fetch('/api/upload/video', {
+                          method: 'POST',
+                          body: formData
+                        });
+                        const data = await res.json();
+                        if (data.success) {
+                          window.location.href = `/result/${sessionId}`;
+                        } else {
+                          alert(data.error || 'Video upload failed');
+                          setStep('master');
+                        }
+                      } catch (err: any) {
+                        alert('Upload error: ' + err.message);
+                        setStep('master');
+                      } finally {
+                        setIsProcessingVideo(false);
+                      }
+                    }}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={() => setStep('consent')}
+                  className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm shadow-xl hover:scale-105 transition flex items-center justify-center gap-2"
+                >
+                  PROCEED WITH AUTOMATED GENERATION <Check className="w-5 h-5" />
+                </button>
+              </div>
             </div>
           )}
         </div>
