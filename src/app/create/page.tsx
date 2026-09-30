@@ -1,12 +1,12 @@
 'use client';
 
 import React, { useState } from 'react';
-import { Camera, Scan, CheckCircle2, ArrowRight, Sparkles, RefreshCw, AlertCircle, Shirt, User, Check, Eye } from 'lucide-react';
+import { Camera, Scan, CheckCircle2, ArrowRight, Sparkles, RefreshCw, Shirt, User, Check, Copy, Download, Upload, Video, Film } from 'lucide-react';
 import { compressImage } from '@/lib/utils/image';
 
 export default function OperatorCreatePage() {
   const [sessionId] = useState(() => 'mah_' + Date.now() + '_' + Math.random().toString(36).substring(2, 7));
-  const [step, setStep] = useState<'garment' | 'person' | 'master' | 'consent' | 'generating'>('garment');
+  const [step, setStep] = useState<'garment' | 'person' | 'master' | 'videokit' | 'consent' | 'generating'>('garment');
   const [garmentPhotos, setGarmentPhotos] = useState<string[]>([]);
   const [personPhoto, setPersonPhoto] = useState<string | null>(null);
   
@@ -21,10 +21,11 @@ export default function OperatorCreatePage() {
   const [masterImageUrl, setMasterImageUrl] = useState<string | null>(null);
 
   const [generationConsent, setGenerationConsent] = useState(true);
-  const [isProcessingVideo, setIsProcessingVideo] = useState(false);
+  const [isUploadingVideo, setIsUploadingVideo] = useState(false);
   const [progressMsg, setProgressMsg] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
 
-  // 1. Handle Garment Capture & Gemini Analysis Trigger with Image Compression
+  // 1. Handle Garment Capture & Gemini Analysis Trigger
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>, target: 'garment' | 'person') => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
@@ -112,52 +113,103 @@ export default function OperatorCreatePage() {
     }
   };
 
-  // 3. Start Async Video Generation
-  const handleStartGeneration = async () => {
-    if (!generationConsent) return;
-    setStep('generating');
-    setIsProcessingVideo(true);
+  // 3. Controlled Video Prompt Text
+  const getControlledVideoPrompt = () => {
+    const garmentType = garmentAnalysis?.garmentType || 'outfit';
+    const primaryColor = garmentAnalysis?.primaryColor || 'selected';
+    return `Photorealistic 6-second vertical 9:16 full-body cinematic commercial video. Using the exact facial features and identity from the uploaded user reference photo, seamlessly composite her wearing the ${primaryColor} ${garmentType} from the uploaded product photo as a complete, full-length outfit. The action starts with her walking smoothly forward toward the camera from a vibrant, colorful, and fully decorated Diwali festive background filled with bright traditional lights, floral arrangements, and festive decor. Strict full-length head-to-toe framing is maintained throughout to show the complete silhouette and length of the dress. She smiles warmly, holding a glowing clay diya lamp gracefully in her hands. Professional festive makeup, glowing soft skin highlights, and traditional styling matching her features. Embedded Tamil voiceover saying: "அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!". High-end commercial color grading, sharp focus, 4K vertical.`;
+  };
+
+  const handleCopyPrompt = () => {
+    const prompt = getControlledVideoPrompt();
+    navigator.clipboard.writeText(prompt);
+    setCopySuccess(true);
+    setTimeout(() => setCopySuccess(false), 3000);
+  };
+
+  // 4. Handle Direct Browser-to-Storage Video Upload (No Vercel Piping)
+  const handleDirectVideoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingVideo(true);
+    setProgressMsg('Preparing secure upload to Firebase Storage...');
 
     try {
-      setProgressMsg('Initializing Google Veo Async Pipeline...');
-      const startRes = await fetch('/api/video/start', {
+      const contentType = file.type || 'video/mp4';
+
+      // Step A: Request Signed Upload URL
+      const signedRes = await fetch('/api/upload/signed-url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId, garmentAnalysis, masterImageUrl })
+        body: JSON.stringify({
+          sessionId,
+          assetType: 'video',
+          contentType
+        })
       });
-      const startData = await startRes.json();
+      const signedData = await signedRes.json();
+      const storagePath = signedData.storagePath || `sessions/${sessionId}/video/final.mp4`;
 
-      if (!startData.success) throw new Error(startData.error || 'Start failed');
-      const jobId = startData.jobId;
+      let uploadedVideoUrl: string | null = null;
 
-      const progressSteps = [
-        'Applying Master Reference Image to Video Engine...',
-        'Rendering 9:16 Vertical Fashion Composition...',
-        'Synthesizing Tamil Greeting: "இனிய தீபாவளி நல்வாழ்த்துக்கள்!"...',
-        'Running AI Quality Assurance Check...'
-      ];
+      if (signedData.success && signedData.directUpload && signedData.uploadUrl) {
+        // Direct browser PUT to Firebase Storage Signed URL
+        setProgressMsg('Uploading video directly to Storage...');
+        const putRes = await fetch(signedData.uploadUrl, {
+          method: 'PUT',
+          headers: { 'Content-Type': contentType },
+          body: file
+        });
 
-      for (let i = 0; i < progressSteps.length; i++) {
-        setProgressMsg(progressSteps[i]);
-        await new Promise((r) => setTimeout(r, 1000));
-      }
-
-      const statusRes = await fetch(`/api/video/status?jobId=${jobId}&sessionId=${sessionId}`);
-      const statusData = await statusRes.json();
-
-      if (statusData.success) {
-        window.location.href = `/result/${sessionId}`;
+        if (!putRes.ok) {
+          throw new Error('Direct Storage upload failed with status ' + putRes.status);
+        }
       } else {
-        alert(statusData.error || 'Video generation failed');
+        // Fallback server upload if signed URLs are not active
+        setProgressMsg('Uploading video file...');
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('sessionId', sessionId);
+
+        const uploadRes = await fetch('/api/upload/video', {
+          method: 'POST',
+          body: formData
+        });
+        const uploadData = await uploadRes.json();
+        if (!uploadData.success) throw new Error(uploadData.error || 'Video upload failed');
+        uploadedVideoUrl = uploadData.videoUrl;
       }
-    } catch (err: any) {
-      console.error(err);
+
+      // Step B: Call POST /api/video/manual-complete
+      setProgressMsg('Finalizing Diwali Commercial Film...');
+      const completeRes = await fetch('/api/video/manual-complete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          storagePath,
+          videoUrl: uploadedVideoUrl
+        })
+      });
+      const completeData = await completeRes.json();
+
+      if (!completeData.success) {
+        throw new Error(completeData.error || 'Failed to complete video registration.');
+      }
+
+      // Step C: Redirect to Result Page
       window.location.href = `/result/${sessionId}`;
+    } catch (err: any) {
+      console.error('Direct Video Upload Error:', err);
+      alert('Video Upload Error: ' + err.message);
+    } finally {
+      setIsUploadingVideo(false);
     }
   };
 
   return (
-    <main className="min-h-screen bg-[#070609] text-[#F8F5EE] p-4 md:p-8 font-sans max-w-lg mx-auto relative select-none">
+    <main className="min-h-screen bg-[#070609] text-[#F8F5EE] p-4 md:p-8 font-sans max-w-lg mx-auto relative select-none pb-12">
       
       {/* Header */}
       <header className="flex justify-between items-center border-b border-[#D4AF37]/20 pb-4 mb-6">
@@ -166,12 +218,12 @@ export default function OperatorCreatePage() {
             MAHARAJA VISUAL ENGINE
           </h1>
           <p className="text-[10px] text-[#D4AF37]/80 tracking-widest uppercase">
-            STORE OPERATOR APPLICATION
+            DIWALI COMMERCIAL CREATOR
           </p>
         </div>
 
         <div className="flex items-center gap-2 text-[10px] uppercase font-mono px-3 py-1 rounded-full bg-[#6e0d1f]/40 border border-[#D4AF37]/40 text-[#F3E5AB]">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> SCANNER ACTIVE
+          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> STUDIO ACTIVE
         </div>
       </header>
 
@@ -183,7 +235,7 @@ export default function OperatorCreatePage() {
         <span>→</span>
         <span className={step === 'master' ? 'text-[#D4AF37] font-bold' : ''}>3. MASTER</span>
         <span>→</span>
-        <span className={step === 'consent' || step === 'generating' ? 'text-[#D4AF37] font-bold' : ''}>4. VIDEO</span>
+        <span className={step === 'videokit' ? 'text-[#D4AF37] font-bold' : ''}>4. VIDEO KIT</span>
       </div>
 
       {/* Step 1: Garment Scan */}
@@ -199,8 +251,6 @@ export default function OperatorCreatePage() {
           </div>
 
           <div className="relative aspect-[3/4] w-full rounded-2xl border-2 border-[#D4AF37]/50 bg-black/80 overflow-hidden flex flex-col items-center justify-center shadow-2xl">
-            <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-transparent via-[#D4AF37] to-transparent animate-scanline shadow-[0_0_15px_#D4AF37] pointer-events-none z-20" />
-
             <div className="absolute top-4 left-4 w-6 h-6 border-t-2 border-l-2 border-[#D4AF37] pointer-events-none" />
             <div className="absolute top-4 right-4 w-6 h-6 border-t-2 border-r-2 border-[#D4AF37] pointer-events-none" />
             <div className="absolute bottom-4 left-4 w-6 h-6 border-b-2 border-l-2 border-[#D4AF37] pointer-events-none" />
@@ -244,17 +294,12 @@ export default function OperatorCreatePage() {
                 <div>TYPE: <span className="text-white font-semibold">{garmentAnalysis.garmentType}</span></div>
                 <div>COLOR: <span className="text-white font-semibold">{garmentAnalysis.primaryColor}</span></div>
                 <div className="col-span-2">EMBROIDERY: <span className="text-gray-200">{garmentAnalysis.embroideryDescription}</span></div>
-                {garmentAnalysis.complementaryPieces?.recommendedBottom && (
-                  <div className="col-span-2 text-[#F3E5AB] bg-black/40 p-2 rounded border border-[#D4AF37]/30">
-                    💡 RECOMMENDED BOTTOM: <span className="font-bold text-white">{garmentAnalysis.complementaryPieces.recommendedBottom}</span>
-                  </div>
-                )}
               </div>
             </div>
           )}
 
           <div className="space-y-3">
-            <label className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-sm shadow-xl flex items-center justify-center gap-3 cursor-pointer hover:brightness-110 active:scale-95 transition">
+            <label className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-sm shadow-xl flex items-center justify-center gap-3 cursor-pointer hover:brightness-110 transition">
               <Camera className="w-5 h-5 fill-black" />
               {garmentPhotos.length === 0 ? 'TAKE GARMENT PHOTO 1' : 'ADD GARMENT DETAIL PHOTO 2'}
               <input type="file" accept="image/*" capture="environment" onChange={(e) => handlePhotoUpload(e, 'garment')} className="hidden" />
@@ -272,7 +317,7 @@ export default function OperatorCreatePage() {
         </div>
       )}
 
-      {/* Step 2: Person Scan */}
+      {/* Step 2: Customer Scan */}
       {step === 'person' && (
         <div className="space-y-6">
           <div className="text-center">
@@ -315,7 +360,7 @@ export default function OperatorCreatePage() {
           )}
 
           <div className="space-y-3">
-            <label className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-sm shadow-xl flex items-center justify-center gap-3 cursor-pointer hover:brightness-110 active:scale-95 transition">
+            <label className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-sm shadow-xl flex items-center justify-center gap-3 cursor-pointer hover:brightness-110 transition">
               <Camera className="w-5 h-5 fill-black" />
               {personPhoto ? 'RETAKE CUSTOMER PHOTO' : 'CAPTURE CUSTOMER PHOTO'}
               <input type="file" accept="image/*" capture="user" onChange={(e) => handlePhotoUpload(e, 'person')} className="hidden" />
@@ -341,7 +386,7 @@ export default function OperatorCreatePage() {
               MASTER DIWALI FASHION IMAGE
             </h2>
             <p className="text-xs text-gray-300 mt-1">
-              Photorealistic fashion reference synthesized prior to video generation.
+              Photorealistic fashion reference synthesized for video generation.
             </p>
           </div>
 
@@ -353,7 +398,7 @@ export default function OperatorCreatePage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-5">
               <div className="relative aspect-[9/16] w-full max-w-xs mx-auto rounded-2xl overflow-hidden border-2 border-[#D4AF37] shadow-2xl bg-black">
                 <img
                   src={masterImageUrl || '/sample-master.jpg'}
@@ -361,153 +406,124 @@ export default function OperatorCreatePage() {
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute top-3 right-3 bg-emerald-950/80 border border-emerald-500/50 px-3 py-1 rounded-full text-[10px] text-emerald-300 font-mono">
-                  MASTER LOCKED ✓
+                  MASTER APPROVED ✓
                 </div>
               </div>
 
-              <div className="maharaja-card p-4 rounded-xl border border-[#D4AF37]/30 text-xs text-gray-300 space-y-2">
-                <p className="text-[#D4AF37] font-bold uppercase tracking-wider">OPTIONAL: PHONE GENERATION HELPER</p>
-                <p className="text-[11px] text-gray-300">
-                  Copy this prompt & download your reference image to generate on your phone's Gemini Pro app, then upload the finished video below.
-                </p>
-
-                <div className="grid grid-cols-2 gap-2 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const prompt = `Photorealistic 6-second vertical 9:16 full-body cinematic commercial video. Using the exact facial features and identity from the uploaded user reference photo, seamlessly composite her wearing the ${garmentAnalysis?.primaryColor || 'selected'} ${garmentAnalysis?.garmentType || 'outfit'} from the uploaded product photo as a complete, full-length outfit. The action starts with her walking smoothly forward toward the camera from a vibrant, colorful, and fully decorated Diwali festive background filled with bright traditional lights, floral arrangements, and festive decor. Strict full-length head-to-toe framing is maintained throughout to show the complete silhouette and length of the dress. She smiles warmly, holding a glowing clay diya lamp gracefully in her hands. Professional festive makeup, glowing soft skin highlights, and traditional styling matching her features. Embedded Tamil voiceover saying: "அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!". High-end commercial color grading, sharp focus, 4K vertical.`;
-                      navigator.clipboard.writeText(prompt);
-                      alert('✓ AI Commercial Prompt copied to clipboard!');
-                    }}
-                    className="py-2.5 px-3 rounded-lg bg-black/80 border border-[#D4AF37]/50 text-[#F3E5AB] font-semibold text-[11px] flex items-center justify-center gap-1.5 hover:bg-black transition"
-                  >
-                    📋 COPY PROMPT
-                  </button>
-
-                  <a
-                    href={masterImageUrl || '/sample-master.jpg'}
-                    download={`Maharaja-Master-${sessionId}.jpg`}
-                    className="py-2.5 px-3 rounded-lg bg-black/80 border border-[#D4AF37]/50 text-[#F3E5AB] font-semibold text-[11px] flex items-center justify-center gap-1.5 hover:bg-black transition text-center"
-                  >
-                    📥 DOWNLOAD IMAGE
-                  </a>
-                </div>
+              <div className="maharaja-card p-4 rounded-xl border border-[#D4AF37]/30 text-xs text-gray-300 space-y-1">
+                <p className="text-[#D4AF37] font-bold">OPERATOR VERIFICATION CHECKLIST:</p>
+                <p>✓ Customer identity & facial features preserved</p>
+                <p>✓ Purchased garment embroidery & colors rendered</p>
+                <p>✓ Diwali festive background & diya lighting locked</p>
               </div>
 
-              {/* Direct Video Upload Section */}
-              <div className="p-4 rounded-xl bg-[#6e0d1f]/30 border-2 border-dashed border-[#D4AF37]/50 text-center space-y-3">
-                <p className="text-xs font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
-                  🎬 UPLOAD GENERATED VIDEO (.MP4)
-                </p>
-                <p className="text-[11px] text-gray-300">
-                  Got your video from phone? Upload it here to immediately enable Download & Go Live TV playback.
-                </p>
-
-                <label className="inline-flex py-3 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-xs shadow-lg cursor-pointer hover:brightness-110 transition items-center justify-center gap-2">
-                  <span>SELECT & UPLOAD VIDEO FILE</span>
-                  <input
-                    type="file"
-                    accept="video/mp4,video/*"
-                    onChange={async (e) => {
-                      const file = e.target.files?.[0];
-                      if (!file) return;
-                      const formData = new FormData();
-                      formData.append('file', file);
-                      formData.append('sessionId', sessionId);
-
-                      try {
-                        setIsProcessingVideo(true);
-                        setStep('generating');
-                        setProgressMsg('Uploading generated video file...');
-                        const res = await fetch('/api/upload/video', {
-                          method: 'POST',
-                          body: formData
-                        });
-                        const data = await res.json();
-                        if (data.success) {
-                          window.location.href = `/result/${sessionId}`;
-                        } else {
-                          alert(data.error || 'Video upload failed');
-                          setStep('master');
-                        }
-                      } catch (err: any) {
-                        alert('Upload error: ' + err.message);
-                        setStep('master');
-                      } finally {
-                        setIsProcessingVideo(false);
-                      }
-                    }}
-                    className="hidden"
-                  />
-                </label>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  onClick={() => setStep('consent')}
-                  className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm shadow-xl hover:scale-105 transition flex items-center justify-center gap-2"
-                >
-                  PROCEED WITH AUTOMATED GENERATION <Check className="w-5 h-5" />
-                </button>
-              </div>
+              <button
+                onClick={() => setStep('videokit')}
+                className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-sm shadow-xl hover:scale-105 transition flex items-center justify-center gap-2"
+              >
+                APPROVE MASTER & PREPARE VIDEO KIT <Check className="w-5 h-5" />
+              </button>
             </div>
           )}
         </div>
       )}
 
-      {/* Step 4: Consent */}
-      {step === 'consent' && (
+      {/* Step 4: YOUR AI VIDEO KIT IS READY (Mobile Step) */}
+      {step === 'videokit' && (
         <div className="space-y-6">
           <div className="text-center">
-            <h2 className="text-xl font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
-              CUSTOMER CONSENT
+            <h2 className="text-xl font-serif font-bold text-[#F3E5AB] uppercase tracking-wider flex items-center justify-center gap-2">
+              <Film className="w-5 h-5 text-[#D4AF37]" /> YOUR AI VIDEO KIT IS READY
             </h2>
             <p className="text-xs text-gray-300 mt-1">
-              Verify customer approval prior to AI video synthesis.
+              Download master image & copy prompt, then upload generated video below.
             </p>
           </div>
 
-          <div className="maharaja-card p-6 rounded-xl border border-[#D4AF37]/30 space-y-4">
-            <label className="flex items-start gap-3 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={generationConsent}
-                onChange={(e) => setGenerationConsent(e.target.checked)}
-                className="w-5 h-5 mt-0.5 accent-[#D4AF37]"
-              />
-              <span className="text-xs text-gray-200 leading-relaxed">
-                I authorize Maharaja Ready-Made Store to analyze my photos and generate a personalized 6-second AI Diwali video featuring my purchased garment.
-              </span>
-            </label>
+          {/* 1. Approved Master Image Frame */}
+          <div className="relative aspect-[9/16] w-full max-w-xs mx-auto rounded-2xl overflow-hidden border-2 border-[#D4AF37] shadow-2xl bg-black">
+            <img
+              src={masterImageUrl || '/sample-master.jpg'}
+              alt="Approved Master"
+              className="w-full h-full object-cover"
+            />
+            <div className="absolute top-3 right-3 bg-emerald-950/80 border border-emerald-500/50 px-3 py-1 rounded-full text-[10px] text-emerald-300 font-mono">
+              APPROVED REFERENCE ✓
+            </div>
           </div>
 
-          <button
-            onClick={handleStartGeneration}
-            disabled={!generationConsent}
-            className="w-full py-4 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-base shadow-xl hover:scale-105 transition flex items-center justify-center gap-2 disabled:opacity-50"
-          >
-            <Sparkles className="w-5 h-5 fill-black" /> START AI VIDEO GENERATION
-          </button>
+          {/* 2 & 3. Primary Action Buttons */}
+          <div className="space-y-3">
+            <a
+              href={masterImageUrl || '/sample-master.jpg'}
+              download={`Maharaja-Master-${sessionId}.jpg`}
+              className="w-full py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#800A1D] via-[#D4AF37] to-[#800A1D] text-black font-bold uppercase tracking-wider text-xs shadow-lg flex items-center justify-center gap-2 hover:brightness-110 transition"
+            >
+              <Download className="w-4 h-4 fill-black" /> DOWNLOAD MASTER IMAGE
+            </a>
+
+            <button
+              onClick={handleCopyPrompt}
+              className="w-full py-3.5 px-6 rounded-xl bg-black/80 border-2 border-[#D4AF37] text-[#F3E5AB] font-bold uppercase tracking-wider text-xs shadow-lg flex items-center justify-center gap-2 hover:bg-black transition"
+            >
+              <Copy className="w-4 h-4 text-[#D4AF37]" />
+              {copySuccess ? '✓ PROMPT COPIED TO CLIPBOARD' : 'COPY GEMINI VIDEO PROMPT'}
+            </button>
+          </div>
+
+          {/* 4. Instructions */}
+          <div className="maharaja-card p-4 rounded-xl border border-[#D4AF37]/30 text-xs text-gray-300 space-y-2">
+            <p className="text-[#D4AF37] font-serif font-bold uppercase tracking-wider flex items-center gap-1.5">
+              <span>📲 GENERATION INSTRUCTIONS</span>
+            </p>
+            <ol className="list-decimal list-inside text-[11px] text-gray-300 space-y-1.5 leading-relaxed font-sans">
+              <li>Open the <strong>Gemini app</strong> on your phone.</li>
+              <li>Upload the downloaded <strong>Master Image</strong> as reference.</li>
+              <li>Paste the copied <strong>AI Commercial Prompt</strong> and tap generate.</li>
+              <li>Download your finished <strong>.MP4 video</strong> to your phone.</li>
+              <li>Tap <strong>Upload Generated Video</strong> below to push to store TV display.</li>
+            </ol>
+          </div>
+
+          {/* 5. UPLOAD GENERATED VIDEO Dropzone */}
+          <div className="p-5 rounded-xl bg-[#6e0d1f]/40 border-2 border-dashed border-[#D4AF37] text-center space-y-3">
+            <div className="w-10 h-10 mx-auto rounded-full bg-black/60 border border-[#D4AF37]/50 flex items-center justify-center text-[#D4AF37]">
+              <Upload className="w-5 h-5" />
+            </div>
+
+            <div>
+              <p className="text-xs font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
+                UPLOAD GENERATED VIDEO (.MP4)
+              </p>
+              <p className="text-[11px] text-gray-300 mt-0.5">
+                Upload your MP4 video file to immediately trigger Download & Go Live TV playback.
+              </p>
+            </div>
+
+            <label className="inline-flex py-3.5 px-6 rounded-xl bg-gradient-to-r from-[#D4AF37] via-[#F5E089] to-[#D4AF37] text-black font-bold uppercase tracking-wider text-xs shadow-xl cursor-pointer hover:scale-105 transition items-center justify-center gap-2">
+              <Video className="w-4 h-4 fill-black" />
+              <span>SELECT & UPLOAD GENERATED VIDEO</span>
+              <input
+                type="file"
+                accept="video/mp4,video/*"
+                onChange={handleDirectVideoUpload}
+                disabled={isUploadingVideo}
+                className="hidden"
+              />
+            </label>
+          </div>
         </div>
       )}
 
-      {/* Step 5: Generating Overlay */}
-      {step === 'generating' && (
-        <div className="py-12 text-center space-y-6">
-          <div className="w-20 h-20 mx-auto rounded-full bg-[#6e0d1f]/40 border-2 border-[#D4AF37] flex items-center justify-center text-[#D4AF37] animate-pulse">
-            <RefreshCw className="w-10 h-10 animate-spin" />
-          </div>
-
-          <h2 className="text-2xl font-serif font-bold text-[#F3E5AB] tracking-wide uppercase">
-            GENERATING DIWALI FILM
-          </h2>
-
-          <p className="text-xs text-[#D4AF37] font-mono max-w-xs mx-auto animate-pulse">
+      {/* Uploading Overlay */}
+      {isUploadingVideo && (
+        <div className="fixed inset-0 z-50 bg-black/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center space-y-4">
+          <RefreshCw className="w-12 h-12 text-[#D4AF37] animate-spin" />
+          <h3 className="text-xl font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
+            UPLOADING DIWALI FILM
+          </h3>
+          <p className="text-xs text-[#D4AF37] font-mono animate-pulse">
             {progressMsg}
-          </p>
-
-          <p className="text-[11px] text-gray-400">
-            Please wait while Google Gemini & Veo synthesize your film...
           </p>
         </div>
       )}
