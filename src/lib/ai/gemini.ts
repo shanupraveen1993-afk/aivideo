@@ -197,17 +197,10 @@ Return STRICT JSON:
 
 // 3. Controlled Video Prompt Builder
 export function buildVideoPrompt(analysis: any): string {
-  const garmentType = analysis?.garmentType || 'Kurta';
-  const primaryColor = analysis?.primaryColor || 'Royal Maroon';
-  const embroidery = analysis?.embroideryDescription || 'Gold zari work';
-  const bottom = analysis?.complementaryPieces?.recommendedBottom || 'Churidar';
+  const garmentType = analysis?.garmentType || 'outfit';
+  const primaryColor = analysis?.primaryColor || 'selected garment';
 
-  return `Vertical 9:16 cinematic 8k fashion advertisement video for Maharaja Ready-Made Store in Thanjavur.
-The customer is wearing a premium ${primaryColor} ${garmentType} featuring ${embroidery}, styled with ${bottom}.
-0.0-2.0s: Customer is standing gracefully in an opulent Indian Diwali palace environment with warm diya lamps, intricate rangoli, and soft festive bokeh.
-2.0-5.3s: Customer takes 2 slow, dignified natural steps forward toward the camera. Camera tracks backward smoothly. No dancing, spinning, or fast motion.
-5.3-8.0s: Customer slows to a stop, looks directly at the camera, smiles naturally, and delivers a clear Tamil Diwali greeting: "இனிய தீபாவளி நல்வாழ்த்துக்கள்!".
-Preserve facial identity, skin tone, hairstyle, and exact garment embroidery throughout the entire film.`;
+  return `Photorealistic 6-second vertical 9:16 full-body cinematic commercial video. Using the exact facial features and identity from the uploaded user reference photo, seamlessly composite her wearing the ${primaryColor} ${garmentType} from the uploaded product photo as a complete, full-length outfit. The action starts with her walking smoothly forward toward the camera from a vibrant, colorful, and fully decorated Diwali festive background filled with bright traditional lights, floral arrangements, and festive decor. Strict full-length head-to-toe framing is maintained throughout to show the complete silhouette and length of the dress. She smiles warmly, holding a glowing clay diya lamp gracefully in her hands. Professional festive makeup, glowing soft skin highlights, and traditional styling matching her features. Embedded Tamil voiceover saying: "அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!". High-end commercial color grading, sharp focus, 4K vertical.`;
 }
 
 // 4. Quality Assurance Evaluation (Fix 13: Freeze Fake QA)
