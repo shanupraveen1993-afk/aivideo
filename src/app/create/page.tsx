@@ -92,9 +92,18 @@ export default function OperatorCreatePage() {
     }
   };
 
-  // 3. Exact Master Image Prompt Text Required
+  // 3. Refined Master Image Prompt (Gemini Pro Imagen 3)
   const getMasterImagePrompt = () => {
-    return `Use the uploaded person photograph as the exact identity reference. Preserve facial features, face shape, skin tone, hairstyle and realistic body proportions. Use the uploaded garment photographs as the exact clothing reference. Dress the same person naturally and photorealistically in the selected garment, preserving its exact primary color, secondary colors, fabric appearance, embroidery, patterns, borders, silhouette and design. If only a top garment is supplied, create a tasteful complementary traditional lower garment without changing the supplied product. Create an elegant premium Indian Diwali fashion portrait in vertical 9:16, strict full-body head-to-toe framing, natural standing pose, attractive festive styling, warm diya lighting and refined Diwali décor. The result must look like the same real customer genuinely wearing the selected Maharaja garment. Do not change face identity, garment color, embroidery or pattern. No duplicate person, extra limbs, malformed hands, text or generated logos.`;
+    return `Create a photorealistic vertical 9:16 full-body Indian festive fashion master image.
+Use the first uploaded image as the exact customer identity reference. Preserve the same facial identity, facial features, face shape, skin tone, hairstyle, approximate body proportions, age appearance and overall likeness.
+Use the remaining uploaded garment images as the exact clothing reference. Preserve the garment's real primary color, secondary colors, fabric appearance, embroidery, motifs, borders, pattern placement, neckline, sleeves, silhouette and overall design.
+Dress the same customer naturally and realistically in the selected garment as a complete full-length outfit.
+If the uploaded product contains only a top garment, create a tasteful complementary traditional bottom that matches the product without altering the supplied garment itself.
+Create an elegant premium Diwali fashion setting with warm glowing diyas, traditional lamps, subtle rangoli, floral decorations and refined festive golden lighting.
+Maintain strict full-body head-to-toe framing. The complete outfit must be clearly visible.
+Styling should be attractive, premium and realistic, with natural posture, subtle festive makeup and elegant Indian traditional styling suitable for the customer.
+Do not change the customer's identity. Do not redesign the garment. Do not change garment color, embroidery, motifs or pattern. Do not create duplicate people, extra limbs, malformed hands, random text or logos.
+The final image should look like a premium Maharaja festive fashion campaign photograph.`;
   };
 
   const handleCopyMasterPrompt = () => {
@@ -104,9 +113,21 @@ export default function OperatorCreatePage() {
     setTimeout(() => setCopyMasterPromptSuccess(false), 3000);
   };
 
-  // 4. Exact Video Prompt Text Required
+  // 4. Refined Video Commercial Prompt (Gemini Pro Veo 3.1)
   const getGeminiVideoPrompt = () => {
-    return `Create a photorealistic premium 6-second vertical 9:16 Diwali fashion commercial using the uploaded master reference image as the definitive visual reference. Preserve the exact person's identity, facial features, skin tone, hairstyle, body proportions, garment design, garment color, fabric, embroidery, pattern, accessories and complete outfit throughout. The person walks slowly and naturally toward the camera while gracefully holding a glowing clay diya. Maintain strict full-body head-to-toe framing throughout so the complete garment remains visible. Surround the subject with elegant premium Diwali décor, warm diyas, floral arrangements, rangoli and festive golden lighting. The person smiles warmly and clearly says in Tamil: ‘அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!’ Natural movement, anatomically correct hands, realistic fabric motion, cinematic lighting and premium Indian fashion-advertisement quality. Do not change face, body, garment, color, embroidery or hairstyle. No duplicate person, extra limbs, malformed hands, dancing, spinning, jumping, random text or generated logos.`;
+    return `Create a photorealistic premium 6-second vertical 9:16 Diwali fashion commercial using the uploaded master reference image as the definitive visual reference.
+Preserve the exact same person's facial identity, facial features, face shape, skin tone, hairstyle, body proportions, age appearance, garment design, garment color, fabric, embroidery, motifs, pattern, accessories and complete outfit throughout the entire video.
+The subject begins slightly farther from the camera and walks slowly and naturally forward toward the camera throughout the shot.
+Maintain strict full-body head-to-toe framing throughout so the complete garment length and silhouette remain clearly visible at all times.
+The subject smiles warmly and gracefully holds a glowing traditional clay diya in both hands while walking.
+Place the subject in a vibrant premium Diwali celebration environment with warm diyas, traditional lamps, floral decorations, subtle rangoli and elegant festive golden lighting.
+Use realistic walking motion, natural fabric movement, anatomically correct hands and fingers, elegant posture, subtle festive makeup, realistic skin texture and high-end Indian fashion-commercial lighting.
+The subject clearly says in natural Tamil:
+"அனைவருக்கும் இனிய தீபாவளி நல்வாழ்த்துக்கள்!"
+Keep the camera movement smooth and cinematic. Keep the person centered and clearly visible.
+Display the Tamil greeting text tastefully near the lower third for 2-3 seconds.
+Do not change the person's face. Do not change the garment. Do not change garment color, embroidery, hairstyle or body proportions. No duplicate person. No extra limbs. No malformed hands. No dancing. No spinning. No jumping. No face morphing. No random text. No generated logos. No excessive fireworks.
+Premium festive commercial look, sharp focus, cinematic depth and warm color grading.`;
   };
 
   const handleCopyVideoPrompt = () => {
