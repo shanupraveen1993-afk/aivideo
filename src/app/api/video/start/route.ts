@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
         };
 
         const generateParams: any = {
-          model: AI_CONFIG.GEMINI_VIDEO_MODEL || 'veo-3.1-generate-preview',
+          model: AI_CONFIG.GEMINI_VIDEO_MODEL || 'veo-3.1-fast-generate-preview',
           prompt,
           config: videoConfig
         };
