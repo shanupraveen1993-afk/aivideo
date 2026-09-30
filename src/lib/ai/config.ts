@@ -18,10 +18,10 @@ export const AI_CONFIG = {
     return process.env.ADMIN_PASSWORD || '';
   },
   get IS_DEMO_MODE() {
-    return process.env.DEMO_MODE === 'true';
+    return process.env.DEMO_MODE !== 'false';
   },
   get ALLOW_MOCK_BACKEND() {
-    return process.env.ALLOW_MOCK_BACKEND === 'true';
+    return process.env.ALLOW_MOCK_BACKEND !== 'false';
   },
   get PRIMARY_API_KEY() {
     return process.env.GOOGLE_AI_API_KEY_PRIMARY || '';
