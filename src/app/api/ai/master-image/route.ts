@@ -73,8 +73,10 @@ Preserve exact face identity, hairstyle, dress color, embroidery details, and he
           model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
           contents,
           config: {
-            aspectRatio: '9:16'
-          } as any
+            imageConfig: {
+              aspectRatio: '9:16'
+            }
+          }
         });
 
         const candidate = genResponse.candidates?.[0];

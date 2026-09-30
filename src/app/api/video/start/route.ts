@@ -85,12 +85,17 @@ export async function POST(req: NextRequest) {
           }
         }
 
-        if (masterBase64) {
-          generateParams.image = {
-            imageBytes: masterBase64,
-            mimeType: 'image/jpeg'
-          };
+        if (!masterBase64) {
+          return NextResponse.json(
+            { success: false, error: 'Approved master reference image bytes are required to initialize Veo generation.' },
+            { status: 400 }
+          );
         }
+
+        generateParams.image = {
+          imageBytes: masterBase64,
+          mimeType: 'image/jpeg'
+        };
 
         const videoResponse = await ai.models.generateVideos(generateParams);
         operationName = videoResponse.name || null;
