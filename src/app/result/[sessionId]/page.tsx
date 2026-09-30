@@ -1,10 +1,15 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
+import { useParams } from 'next/navigation';
 import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck, AlertCircle } from 'lucide-react';
 
-export default function ResultPage({ params }: { params: { sessionId: string } }) {
+export default function ResultPage({ params }: { params: Promise<{ sessionId: string }> | { sessionId: string } }) {
+  const urlParams = useParams();
+  // Unwrap params safely for Next.js 15/16 App Router
+  const resolvedParams = params && typeof (params as any).then === 'function' ? use(params as Promise<{ sessionId: string }>) : (params as { sessionId: string });
+  const sessionId = (urlParams?.sessionId as string) || resolvedParams?.sessionId || 'sample-session';
   const [showLiveConsent, setShowLiveConsent] = useState(false);
   const [publicConsent, setPublicConsent] = useState(true);
   const [isGoingLive, setIsGoingLive] = useState(false);
@@ -65,7 +70,6 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
     };
   }, [liveSuccess, queueId, countdownSeconds]);
 
-  const sessionId = params?.sessionId || 'sample-session';
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoId, setVideoId] = useState(`video_${sessionId}`);
   const [videoStatus, setVideoStatus] = useState<'processing' | 'ready'>('processing');
