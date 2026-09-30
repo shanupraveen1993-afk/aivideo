@@ -68,11 +68,22 @@ export default function TvPlayerPage() {
     setPlaybackError(null);
     try {
       await videoRef.current.play();
+      
+      // Notify backend immediately that video is now actively playing on screen
+      fetch('/api/tv/playing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          queueId: currentPlayback.queueId,
+          reservationId: currentPlayback.reservationId
+        })
+      }).catch(err => console.error('Failed to notify playing status:', err));
     } catch (err: any) {
       console.error('Video playback error / autoplay blocked:', err);
       setPlaybackError('Autoplay blocked. Press play to start video.');
     }
   };
+
 
   useEffect(() => {
     if (isPlayingVideo && currentPlayback) {

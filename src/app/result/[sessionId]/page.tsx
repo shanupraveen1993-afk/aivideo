@@ -234,10 +234,14 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
                 <span className="px-2.5 py-1 rounded-full bg-[#D4AF37] text-black font-mono font-bold text-xs animate-pulse">
                   {countdownSeconds > 0
                     ? `LIVE IN ${countdownSeconds}s`
-                    : (liveQueueStatus === 'reserved' || liveQueueStatus === 'playing')
+                    : liveQueueStatus === 'playing'
                     ? '📺 LIVE NOW ON TV'
+                    : liveQueueStatus === 'reserved'
+                    ? '⏳ PREPARING ON MAHARAJA SCREEN...'
                     : liveQueueStatus === 'completed'
-                    ? '✅ COMPLETED'
+                    ? '✅ PLAYBACK COMPLETED'
+                    : liveQueueStatus === 'playback_failed'
+                    ? '⚠️ PLAYBACK FAILED'
                     : '⏳ WAITING FOR MAHARAJA SCREEN...'}
                 </span>
               )}
@@ -245,12 +249,17 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
             <p className="text-xs text-emerald-300/90 leading-relaxed">
               {countdownSeconds && countdownSeconds > 0 
                 ? `Preparing live stream... Look at the Maharaja showroom TV in ${countdownSeconds} seconds!`
-                : (liveQueueStatus === 'reserved' || liveQueueStatus === 'playing')
+                : liveQueueStatus === 'playing'
                 ? 'Your video is now playing live on the Maharaja store display screen!'
+                : liveQueueStatus === 'reserved'
+                ? 'Preparing video stream on the Maharaja screen...'
                 : liveQueueStatus === 'completed'
                 ? 'Your video has completed playing on the TV screen.'
+                : liveQueueStatus === 'playback_failed'
+                ? 'Playback encountered an issue on the TV screen.'
                 : 'Waiting for Maharaja screen to start playing your video...'}
             </p>
+
           </div>
         )}
 
