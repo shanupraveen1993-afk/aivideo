@@ -15,28 +15,38 @@ export async function POST(req: NextRequest) {
 
     const targetStoragePath = clientStoragePath || `sessions/${sessionId}/video/final.mp4`;
     const nowIso = new Date().toISOString();
-    let videoUrl = clientVideoUrl || '/sample-diwali.mp4';
+    let videoUrl: string | null = clientVideoUrl || null;
 
     const bucket = getStorageBucket();
     if (bucket) {
       const file = bucket.file(targetStoragePath);
       const [exists] = await file.exists();
 
-      if (!exists && !clientVideoUrl) {
+      if (!exists) {
         return NextResponse.json(
-          { success: false, error: `Uploaded video object does not exist at ${targetStoragePath}` },
+          { success: false, error: `Uploaded video object does not exist at storagePath: ${targetStoragePath}` },
           { status: 400 }
         );
       }
 
-      if (exists) {
-        const [signedUrl] = await file.getSignedUrl({
-          action: 'read',
-          expires: Date.now() + 24 * 60 * 60 * 1000
-        });
-        videoUrl = signedUrl;
+      const [signedUrl] = await file.getSignedUrl({
+        action: 'read',
+        expires: Date.now() + 24 * 60 * 60 * 1000
+      });
+      videoUrl = signedUrl;
+    }
+
+    if (!videoUrl) {
+      if (sessionId === 'sample-session') {
+        videoUrl = '/sample-diwali.mp4';
+      } else {
+        return NextResponse.json(
+          { success: false, error: `Failed to verify or generate video URL for session ${sessionId}` },
+          { status: 400 }
+        );
       }
     }
+
 
     const db = getDb();
     if (db) {

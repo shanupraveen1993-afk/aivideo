@@ -29,19 +29,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
+    const targetSessionId = sessionId || 'sample-session';
     const db = getDb();
-    let videoUrl = AI_CONFIG.IS_DEMO_MODE ? '/sample-diwali.mp4' : null;
-    let status = AI_CONFIG.IS_DEMO_MODE ? 'ready' : 'processing';
-    let targetSessionId = sessionId || 'sample-session';
+    
+    // Only allow sample video fallback for explicit sample-session
+    let videoUrl: string | null = (targetSessionId === 'sample-session') ? '/sample-diwali.mp4' : null;
+    let status: string = (targetSessionId === 'sample-session') ? 'ready' : 'processing';
     let operationName: string | null = null;
 
     if (db) {
-      // 1. Fetch Session Doc first (to resolve jobId if only sessionId is provided)
+      // 1. Fetch Session Doc first
       const sessionDoc = await db.collection('sessions').doc(targetSessionId).get();
       if (sessionDoc.exists) {
         const sData = sessionDoc.data();
-        if (sData?.videoUrl) videoUrl = sData.videoUrl;
-        if (sData?.videoStatus) status = sData.videoStatus;
+        if (sData?.videoStatus === 'ready' || sData?.videoStatus === 'succeeded') {
+          if (sData?.videoUrl && sData?.videoStoragePath) {
+            videoUrl = sData.videoUrl;
+            status = 'ready';
+          }
+        }
         if (!jobId && sData?.jobId) {
           jobId = sData.jobId;
         }
@@ -52,8 +58,8 @@ export async function GET(req: NextRequest) {
         const jobDoc = await db.collection('generationJobs').doc(jobId).get();
         if (jobDoc.exists) {
           operationName = jobDoc.data()?.operationName || null;
-          if (!sessionId) {
-            targetSessionId = jobDoc.data()?.sessionId || targetSessionId;
+          if (!sessionId && jobDoc.data()?.sessionId) {
+            // Keep resolved session ID
           }
         }
       }
@@ -61,11 +67,16 @@ export async function GET(req: NextRequest) {
       const mockStore = getMockStore();
       const session = mockStore.sessions.get(targetSessionId);
       if (session) {
-        if (session.videoUrl) videoUrl = session.videoUrl;
-        if (session.videoStatus) status = session.videoStatus;
+        if (session.videoStatus === 'ready' || session.videoStatus === 'succeeded') {
+          if (session.videoUrl) {
+            videoUrl = session.videoUrl;
+            status = 'ready';
+          }
+        }
         if (!jobId && session.jobId) jobId = session.jobId;
       }
     }
+
 
     // Real Veo Operation Polling via Google operations API
     if (!AI_CONFIG.IS_DEMO_MODE && operationName && status === 'processing') {
@@ -182,27 +193,28 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (!AI_CONFIG.IS_DEMO_MODE && !videoUrl && status !== 'ready') {
+    if (!videoUrl || (status !== 'ready' && status !== 'succeeded')) {
       return NextResponse.json({
         success: true,
         jobId,
         sessionId: targetSessionId,
         status: 'processing',
-        message: 'Video rendering in progress...'
+        videoUrl: null
       });
     }
 
-    const qaResult = await runQualityAssurance('', videoUrl || '');
+    const qaResult = await runQualityAssurance('', videoUrl);
 
     return NextResponse.json({
       success: true,
       jobId,
       sessionId: targetSessionId,
-      status: status === 'ready' || status === 'succeeded' ? 'ready' : 'processing',
+      status: 'ready',
       videoUrl,
       videoId: `video_${targetSessionId}`,
       qaResult
     });
+
   } catch (error: any) {
     console.error('Video Status Route Error:', error);
     return NextResponse.json(
