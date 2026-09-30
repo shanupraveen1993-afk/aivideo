@@ -68,7 +68,19 @@ export async function GET(req: NextRequest) {
         const videoDocRef = db.collection('videos').doc(queueData.videoId);
         const videoDoc = await transaction.get(videoDocRef);
 
-        const storagePath = videoDoc.exists ? videoDoc.data()?.storagePath : 'sessions/sample/video/final.mp4';
+        const videoData = videoDoc.exists ? videoDoc.data() : null;
+        if (!videoDoc.exists || !videoData || !videoData.storagePath) {
+          const failureReason = `Missing video document or storagePath for videoId: '${queueData.videoId}'`;
+          console.error(`Live Queue Error: ${failureReason}`);
+          transaction.update(queueDoc.ref, {
+            status: 'playback_failed',
+            reason: failureReason,
+            failedAt: FieldValue.serverTimestamp()
+          });
+          return { status: 'failed', reason: failureReason };
+        }
+
+        const storagePath = videoData.storagePath;
         const reservationId = generateReservationId();
 
         transaction.update(queueDoc.ref, {
@@ -88,6 +100,10 @@ export async function GET(req: NextRequest) {
 
       if (result.status === 'idle') {
         return NextResponse.json({ status: 'idle' });
+      }
+
+      if (result.status === 'failed') {
+        return NextResponse.json({ status: 'idle', reason: result.reason });
       }
 
       const signedUrl = await getSignedPlaybackUrl(result.storagePath);
@@ -129,7 +145,15 @@ export async function GET(req: NextRequest) {
       }
 
       const video = mockStore.videos.get(nextItem.videoId);
-      const storagePath = video ? video.storagePath : 'sessions/sample/video/final.mp4';
+      if (!video || !video.storagePath) {
+        const failureReason = `Missing mock video record or storagePath for videoId: '${nextItem.videoId}'`;
+        console.error(`Live Queue Mock Error: ${failureReason}`);
+        nextItem.status = 'playback_failed';
+        (nextItem as any).reason = failureReason;
+        return NextResponse.json({ status: 'idle', reason: failureReason });
+      }
+
+      const storagePath = video.storagePath;
       const reservationId = generateReservationId();
 
       nextItem.status = 'reserved';
@@ -147,6 +171,7 @@ export async function GET(req: NextRequest) {
       });
     }
   } catch (error: any) {
+
     console.error('API Live Next Error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal Server Error' },

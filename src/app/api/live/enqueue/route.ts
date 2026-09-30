@@ -5,7 +5,16 @@ import { Timestamp } from 'firebase-admin/firestore';
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sessionId = 'sample-session', videoId = 'sample-video' } = body;
+    const { sessionId, videoId } = body;
+
+
+    if (!sessionId || !videoId) {
+      return NextResponse.json(
+        { success: false, error: 'sessionId and videoId parameters are required for Go Live.' },
+        { status: 400 }
+      );
+    }
+
 
     const queueId = `queue_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
     const nowMs = Date.now();

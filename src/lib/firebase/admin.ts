@@ -153,10 +153,14 @@ export function getMockStore() {
 export const getBackendMode = () => backendMode;
 export const isRealFirebaseAvailable = () => !!firebaseApp;
 
-// Fix 3: Remove silent sample URL fallback when DEMO_MODE != true
+// Generate signed URL for Firebase Storage objects (Strict Mode - No sample fallback)
 export async function getSignedPlaybackUrl(storagePath: string): Promise<string> {
+  if (!storagePath) {
+    throw new Error('getSignedPlaybackUrl error: storagePath parameter is missing or empty.');
+  }
+
   const bucket = getStorageBucket();
-  if (bucket && storagePath) {
+  if (bucket) {
     try {
       const file = bucket.file(storagePath);
       const [url] = await file.getSignedUrl({
@@ -166,16 +170,10 @@ export async function getSignedPlaybackUrl(storagePath: string): Promise<string>
       return url;
     } catch (err: any) {
       console.error('Firebase Storage Signed URL Error:', err);
-      if (!AI_CONFIG.IS_DEMO_MODE) {
-        throw new Error(`Failed to generate signed Storage URL for path: ${storagePath} - ${err.message}`);
-      }
+      throw new Error(`Failed to generate signed Storage URL for path '${storagePath}': ${err.message}`);
     }
   }
 
-  // Sample fallback permitted ONLY if DEMO_MODE is true
-  if (AI_CONFIG.IS_DEMO_MODE) {
-    return '/sample-diwali.mp4';
-  }
-
-  throw new Error(`Real Firebase Storage credentials missing or bucket error for storagePath: ${storagePath}`);
+  throw new Error(`Real Firebase Storage bucket is not available or credentials missing for path '${storagePath}'`);
 }
+
