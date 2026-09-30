@@ -10,6 +10,22 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
   const [isGoingLive, setIsGoingLive] = useState(false);
   const [liveSuccess, setLiveSuccess] = useState(false);
   const [liveError, setLiveError] = useState<string | null>(null);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!liveSuccess) return;
+    setCountdownSeconds(5);
+    const interval = setInterval(() => {
+      setCountdownSeconds((prev) => {
+        if (prev === null || prev <= 1) {
+          clearInterval(interval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [liveSuccess]);
 
   const sessionId = params?.sessionId || 'sample-session';
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
@@ -167,14 +183,23 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
 
         {/* Success / Error Banners */}
         {liveSuccess && (
-          <div className="p-4 rounded-xl bg-emerald-950/60 border border-emerald-500/50 text-emerald-300 text-sm text-left flex items-start gap-3">
-            <CheckCircle2 className="w-6 h-6 shrink-0 text-emerald-400 mt-0.5" />
-            <div>
-              <p className="font-bold text-emerald-200">🎉 YOU'RE GOING LIVE!</p>
-              <p className="text-xs text-emerald-300/90 mt-1">
-                Your Maharaja Diwali moment has been added to the big screen. Look at the store display!
-              </p>
+          <div className="p-4 rounded-xl bg-emerald-950/70 border border-emerald-500/60 text-emerald-300 text-sm text-left space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <span className="font-bold text-emerald-200 uppercase tracking-wider text-xs">🎉 YOU'RE GOING LIVE!</span>
+              </div>
+              {countdownSeconds !== null && (
+                <span className="px-2.5 py-1 rounded-full bg-[#D4AF37] text-black font-mono font-bold text-xs animate-pulse">
+                  {countdownSeconds > 0 ? `LIVE IN ${countdownSeconds}s` : '📺 LIVE NOW ON TV'}
+                </span>
+              )}
             </div>
+            <p className="text-xs text-emerald-300/90 leading-relaxed">
+              {countdownSeconds && countdownSeconds > 0 
+                ? `Preparing live stream... Look at the Maharaja showroom TV in ${countdownSeconds} seconds!`
+                : 'Your video is now playing on the Maharaja store display screen!'}
+            </p>
           </div>
         )}
 
