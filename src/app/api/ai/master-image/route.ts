@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'sessionId is required.' }, { status: 400 });
     }
 
-    let masterImageUrl = '/sample-master.jpg';
+    let masterImageUrl = personPhoto || '/sample-master.jpg';
     const isDemoAsset = AI_CONFIG.IS_DEMO_MODE;
     const nowIso = new Date().toISOString();
 
