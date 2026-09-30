@@ -1,13 +1,28 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, use } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck, AlertCircle } from 'lucide-react';
 
-export default function ResultPage() {
+export default function ResultPage({ params }: { params: Promise<{ sessionId: string }> | { sessionId: string } }) {
   const urlParams = useParams<{ sessionId?: string }>();
-  const rawSessionId = urlParams?.sessionId;
+  let resolvedSessionId: string | undefined = undefined;
+
+  if (params) {
+    if (typeof (params as any).then === 'function') {
+      try {
+        const unwrapped = use(params as Promise<{ sessionId: string }>);
+        resolvedSessionId = unwrapped?.sessionId;
+      } catch (e) {
+        // Fallback to urlParams
+      }
+    } else if ((params as { sessionId?: string }).sessionId) {
+      resolvedSessionId = (params as { sessionId: string }).sessionId;
+    }
+  }
+
+  const rawSessionId = urlParams?.sessionId || resolvedSessionId;
   const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
 
   const [showLiveConsent, setShowLiveConsent] = useState(false);
