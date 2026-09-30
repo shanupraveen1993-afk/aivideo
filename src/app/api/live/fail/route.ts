@@ -6,8 +6,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const { queueId, reservationId, reason = 'Browser playback error' } = body;
 
-    if (!queueId) {
-      return NextResponse.json({ success: false, error: 'Missing queueId' }, { status: 400 });
+    if (!queueId || !reservationId) {
+      return NextResponse.json({ success: false, error: 'Missing queueId or reservationId' }, { status: 400 });
     }
 
     const db = getDb();
@@ -15,6 +15,11 @@ export async function POST(req: NextRequest) {
 
     if (db) {
       const queueDocRef = db.collection('liveQueue').doc(queueId);
+      const doc = await queueDocRef.get();
+      if (!doc.exists || doc.data()?.reservationId !== reservationId) {
+        return NextResponse.json({ success: false, error: 'Invalid or expired reservationId' }, { status: 400 });
+      }
+
       await queueDocRef.update({
         status: 'playback_failed',
         failureReason: reason,
@@ -22,12 +27,13 @@ export async function POST(req: NextRequest) {
       });
     } else {
       const mockStore = getMockStore();
-      const item = mockStore.liveQueue.find((i) => i.id === queueId);
-      if (item) {
-        item.status = 'playback_failed';
-        (item as any).failureReason = reason;
-        (item as any).failedAt = nowIso;
+      const item = mockStore.liveQueue.find((i) => i.id === queueId && i.reservationId === reservationId);
+      if (!item) {
+        return NextResponse.json({ success: false, error: 'Invalid or expired reservationId' }, { status: 400 });
       }
+      item.status = 'playback_failed';
+      (item as any).failureReason = reason;
+      (item as any).failedAt = nowIso;
     }
 
     return NextResponse.json({ success: true, status: 'playback_failed' });

@@ -16,7 +16,7 @@ function getGenAIClient() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { sessionId, garmentAnalysis, personAnalysis } = body;
+    const { sessionId, garmentAnalysis, personAnalysis, personPhoto, garmentPhotos } = body;
 
     if (!sessionId) {
       return NextResponse.json({ success: false, error: 'sessionId is required.' }, { status: 400 });
@@ -36,33 +36,85 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const prompt = `Vertical 9:16 photorealistic fashion master reference photograph of a person wearing a ${garmentAnalysis?.primaryColor || 'maroon'} ${garmentAnalysis?.garmentType || 'Kurta'} with ${garmentAnalysis?.embroideryDescription || 'intricate gold zari embroidery'}, paired with ${garmentAnalysis?.complementaryPieces?.recommendedBottom || 'churidar'}. Diwali festive royal palace background, warm lighting, 8k resolution, crisp facial detail.`;
-
       try {
-        const imagenResponse = await ai.models.generateImages({
-          model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002',
-          prompt,
-          config: {
-            numberOfImages: 1,
-            outputMimeType: 'image/jpeg',
-            aspectRatio: '9:16'
-          }
-        });
+        const contents: any[] = [];
 
-        const generatedImage = imagenResponse.generatedImages?.[0];
-        if (!generatedImage || !generatedImage.image?.imageBytes) {
-          throw new Error('Imagen returned an empty image payload');
+        // 1. Person photo inlineData (customer reference for facial identity & body proportions)
+        if (personPhoto) {
+          const personBase64 = personPhoto.split(',')[1] || personPhoto;
+          contents.push({
+            inlineData: { mimeType: 'image/jpeg', data: personBase64 }
+          });
         }
 
-        masterImageUrl = `data:image/jpeg;base64,${generatedImage.image.imageBytes}`;
+        // 2. Garment photo(s) inlineData (product reference for exact garment, color & embroidery)
+        if (garmentPhotos && Array.isArray(garmentPhotos)) {
+          garmentPhotos.forEach((photo: string) => {
+            const garmentBase64 = photo.split(',')[1] || photo;
+            contents.push({
+              inlineData: { mimeType: 'image/jpeg', data: garmentBase64 }
+            });
+          });
+        }
 
-        // Attempt upload to Firebase Storage if bucket is available
+        const prompt = `Photorealistic 9:16 vertical full-body fashion master reference image.
+Use the first input image for exact facial identity, skin tone, features, and body proportions.
+Use the remaining input images for exact product appearance, dress color (${garmentAnalysis?.primaryColor || 'selected outfit'}), fabric, pattern, embroidery, and silhouette (${garmentAnalysis?.garmentType || 'dress'}).
+Composite the customer seamlessly wearing the garment as a complete full-length outfit.
+Environment: Vibrant decorated Diwali festive background with warm traditional lights, diya lamps, and soft festive bokeh.
+Preserve exact face identity, hairstyle, dress color, embroidery details, and head-to-toe full-length framing. Studio lighting, sharp focus, 8k quality.`;
+
+        contents.push(prompt);
+
+        let imageBase64: string | null = null;
+
+        // Try generateImages or generateContent with image model
+        try {
+          const imagenResponse = await ai.models.generateImages({
+            model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'imagen-3.0-generate-002',
+            prompt,
+            config: {
+              numberOfImages: 1,
+              outputMimeType: 'image/jpeg',
+              aspectRatio: '9:16'
+            }
+          });
+
+          const generatedImage = imagenResponse.generatedImages?.[0];
+          if (generatedImage?.image?.imageBytes) {
+            imageBase64 = generatedImage.image.imageBytes;
+          }
+        } catch (imgErr) {
+          console.warn('generateImages call fallback to generateContent:', imgErr);
+          const genResponse = await ai.models.generateContent({
+            model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
+            contents
+          });
+          const candidate = genResponse.candidates?.[0];
+          const part = candidate?.content?.parts?.find((p: any) => p.inlineData);
+          if (part?.inlineData?.data) {
+            imageBase64 = part.inlineData.data;
+          }
+        }
+
+        if (!imageBase64) {
+          // If model did not return image bytes, fallback to processed reference image or error
+          if (personPhoto) {
+            masterImageUrl = personPhoto;
+          } else {
+            throw new Error('Gemini image generation model did not return an image payload.');
+          }
+        } else {
+          masterImageUrl = `data:image/jpeg;base64,${imageBase64}`;
+        }
+
+        // Store privately in Firebase Storage (public: false)
         const bucket = getStorageBucket();
-        if (bucket) {
-          const fileBuffer = Buffer.from(generatedImage.image.imageBytes, 'base64');
+        if (bucket && imageBase64) {
+          const fileBuffer = Buffer.from(imageBase64, 'base64');
           const storagePath = `sessions/${sessionId}/master/master.jpg`;
           const file = bucket.file(storagePath);
-          await file.save(fileBuffer, { contentType: 'image/jpeg', public: true });
+          await file.save(fileBuffer, { contentType: 'image/jpeg', public: false });
           const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 24 * 60 * 60 * 1000 });
           masterImageUrl = signedUrl;
         }

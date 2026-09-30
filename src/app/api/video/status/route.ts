@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { runQualityAssurance } from '@/lib/ai/gemini';
 import { AI_CONFIG } from '@/lib/ai/config';
-import { getDb, getMockStore } from '@/lib/firebase/admin';
+import { getDb, getMockStore, getStorageBucket } from '@/lib/firebase/admin';
+import { GoogleGenAI } from '@google/genai';
+
+function getGenAIClient() {
+  const apiKey = AI_CONFIG.PRIMARY_API_KEY;
+  if (!apiKey || apiKey.trim() === '') return null;
+  try {
+    return new GoogleGenAI({ apiKey });
+  } catch (err) {
+    return null;
+  }
+}
 
 export async function GET(req: NextRequest) {
   try {
@@ -17,54 +28,124 @@ export async function GET(req: NextRequest) {
     }
 
     const db = getDb();
-    let videoUrl = '/sample-diwali.mp4';
-    let status = 'succeeded';
+    let videoUrl = AI_CONFIG.IS_DEMO_MODE ? '/sample-diwali.mp4' : null;
+    let status = AI_CONFIG.IS_DEMO_MODE ? 'ready' : 'processing';
     let targetSessionId = sessionId || 'sample-session';
+    let operationName: string | null = null;
 
     if (db) {
       let sessionDoc = null;
-      if (sessionId) {
-        sessionDoc = await db.collection('sessions').doc(sessionId).get();
-      } else if (jobId) {
-        const jobDoc = await db.collection('generationJobs').doc(jobId).get();
+      let jobDoc = null;
+
+      if (jobId) {
+        jobDoc = await db.collection('generationJobs').doc(jobId).get();
         if (jobDoc.exists) {
+          operationName = jobDoc.data()?.operationName || null;
           targetSessionId = jobDoc.data()?.sessionId || targetSessionId;
-          sessionDoc = await db.collection('sessions').doc(targetSessionId).get();
         }
       }
 
-      if (sessionDoc && sessionDoc.exists) {
+      sessionDoc = await db.collection('sessions').doc(targetSessionId).get();
+      if (sessionDoc.exists) {
         const data = sessionDoc.data();
-        if (data?.videoUrl) {
-          videoUrl = data.videoUrl;
-        }
-        if (data?.videoStatus) {
-          status = data.videoStatus;
-        }
+        if (data?.videoUrl) videoUrl = data.videoUrl;
+        if (data?.videoStatus) status = data.videoStatus;
       }
     } else {
       const mockStore = getMockStore();
       const session = mockStore.sessions.get(targetSessionId);
       if (session && session.videoUrl) {
         videoUrl = session.videoUrl;
+        status = session.videoStatus || 'ready';
       }
     }
 
-    if (!AI_CONFIG.IS_DEMO_MODE && videoUrl === '/sample-diwali.mp4' && !db) {
-      return NextResponse.json({
-        success: false,
-        error: 'Session video is still processing or not found.',
-        status: 'processing'
-      }, { status: 404 });
+    // Real Veo Operation Polling via Google operations API
+    if (!AI_CONFIG.IS_DEMO_MODE && operationName && status === 'processing') {
+      const ai = getGenAIClient();
+      if (ai) {
+        try {
+          const operation: any = await (ai.operations as any).getVideosOperation({
+            operation: { name: operationName }
+          });
+
+          if (!operation.done) {
+            return NextResponse.json({
+              success: true,
+              jobId,
+              sessionId: targetSessionId,
+              status: 'processing',
+              message: 'Veo video rendering in progress...'
+            });
+          }
+
+          // Operation complete: extract generated MP4
+          const generatedVideo = operation.response?.generatedVideos?.[0]?.video;
+          if (generatedVideo?.videoBytes) {
+            const fileBuffer = Buffer.from(generatedVideo.videoBytes, 'base64');
+            const storagePath = `sessions/${targetSessionId}/video/final.mp4`;
+
+            const bucket = getStorageBucket();
+            if (bucket) {
+              const file = bucket.file(storagePath);
+              await file.save(fileBuffer, { contentType: 'video/mp4', public: false });
+              const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 24 * 60 * 60 * 1000 });
+              videoUrl = signedUrl;
+            } else {
+              videoUrl = `data:video/mp4;base64,${generatedVideo.videoBytes}`;
+            }
+
+            status = 'ready';
+
+            // Store in Firestore: videos/video_{sessionId} and update session
+            if (db) {
+              await db.collection('videos').doc(`video_${targetSessionId}`).set({
+                id: `video_${targetSessionId}`,
+                sessionId: targetSessionId,
+                storagePath: `sessions/${targetSessionId}/video/final.mp4`,
+                status: 'ready',
+                createdAt: new Date().toISOString()
+              }, { merge: true });
+
+              await db.collection('sessions').doc(targetSessionId).set({
+                videoStatus: 'ready',
+                videoUrl,
+                updatedAt: new Date().toISOString()
+              }, { merge: true });
+            } else {
+              const mockStore = getMockStore();
+              mockStore.videos.set(`video_${targetSessionId}`, {
+                id: `video_${targetSessionId}`,
+                sessionId: targetSessionId,
+                storagePath: `sessions/${targetSessionId}/video/final.mp4`,
+                status: 'ready',
+                createdAt: new Date().toISOString()
+              });
+            }
+          }
+        } catch (opErr: any) {
+          console.error('Veo Operation Polling Error:', opErr);
+        }
+      }
     }
 
-    const qaResult = await runQualityAssurance('', videoUrl);
+    if (!AI_CONFIG.IS_DEMO_MODE && !videoUrl && status !== 'ready') {
+      return NextResponse.json({
+        success: true,
+        jobId,
+        sessionId: targetSessionId,
+        status: 'processing',
+        message: 'Video rendering in progress...'
+      });
+    }
+
+    const qaResult = await runQualityAssurance('', videoUrl || '');
 
     return NextResponse.json({
       success: true,
       jobId,
       sessionId: targetSessionId,
-      status,
+      status: status === 'ready' || status === 'succeeded' ? 'ready' : 'processing',
       videoUrl,
       videoId: `video_${targetSessionId}`,
       qaResult

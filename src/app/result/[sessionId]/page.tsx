@@ -12,29 +12,49 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
   const [liveError, setLiveError] = useState<string | null>(null);
 
   const sessionId = params?.sessionId || 'sample-session';
-  const [videoUrl, setVideoUrl] = useState('/sample-diwali.mp4');
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
   const [videoId, setVideoId] = useState(`video_${sessionId}`);
+  const [videoStatus, setVideoStatus] = useState<'processing' | 'ready'>('processing');
   const [isLoadingVideo, setIsLoadingVideo] = useState(true);
 
   useEffect(() => {
-    async function loadSessionVideo() {
+    let isMounted = true;
+    let timer: NodeJS.Timeout;
+
+    async function checkVideoStatus() {
       try {
         const res = await fetch(`/api/video/status?sessionId=${sessionId}`);
         const data = await res.json();
-        if (data.success && data.videoUrl) {
-          setVideoUrl(data.videoUrl);
-          setVideoId(data.videoId || `video_${sessionId}`);
+        if (!isMounted) return;
+
+        if (data.success) {
+          if (data.status === 'ready' || data.status === 'succeeded') {
+            setVideoUrl(data.videoUrl);
+            setVideoId(data.videoId || `video_${sessionId}`);
+            setVideoStatus('ready');
+            setIsLoadingVideo(false);
+            return;
+          }
         }
       } catch (err) {
-        console.warn('Could not load session video, using demo fallback:', err);
-      } finally {
-        setIsLoadingVideo(false);
+        console.warn('Polling error checking video status:', err);
+      }
+
+      if (isMounted) {
+        timer = setTimeout(checkVideoStatus, 3000);
       }
     }
-    loadSessionVideo();
+
+    checkVideoStatus();
+
+    return () => {
+      isMounted = false;
+      if (timer) clearTimeout(timer);
+    };
   }, [sessionId]);
 
   const handleDownload = () => {
+    if (!videoUrl) return;
     const a = document.createElement('a');
     a.href = videoUrl;
     a.download = `Maharaja-Diwali-${sessionId}.mp4`;
@@ -88,11 +108,25 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
         </span>
       </header>
 
-      {/* Main Result Card */}
-      <div className="space-y-6 text-center">
-        <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#6e0d1f]/40 border border-[#D4AF37]/40 text-[#F3E5AB] text-xs font-semibold uppercase tracking-widest">
-          <Sparkles className="w-4 h-4 text-[#D4AF37]" /> ✨ YOUR DIWALI FILM IS READY
+      {/* Rendering / Loading State */}
+      {isLoadingVideo || videoStatus === 'processing' || !videoUrl ? (
+        <div className="py-20 text-center space-y-6">
+          <div className="w-20 h-20 mx-auto rounded-full bg-[#6e0d1f]/40 border-2 border-[#D4AF37] flex items-center justify-center text-[#D4AF37] animate-pulse">
+            <Sparkles className="w-10 h-10 animate-spin" />
+          </div>
+          <h2 className="text-xl font-serif font-bold text-[#F3E5AB] uppercase tracking-wider">
+            RENDERING 6-SECOND DIWALI COMMERCIAL...
+          </h2>
+          <p className="text-xs text-gray-300 max-w-xs mx-auto animate-pulse">
+            Google Veo is synthesizing your full-body video with exact identity & garment preservation. Please wait...
+          </p>
         </div>
+      ) : (
+        /* Main Result Card when Ready */
+        <div className="space-y-6 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-[#6e0d1f]/40 border border-[#D4AF37]/40 text-[#F3E5AB] text-xs font-semibold uppercase tracking-widest">
+            <Sparkles className="w-4 h-4 text-[#D4AF37]" /> ✨ YOUR DIWALI FILM IS READY
+          </div>
 
         {/* 9:16 Video Preview Frame */}
         <div className="relative aspect-[9/16] w-full max-w-xs mx-auto rounded-2xl overflow-hidden border-2 border-[#D4AF37] shadow-[0_0_40px_rgba(212,175,55,0.25)] bg-black">
@@ -151,6 +185,7 @@ export default function ResultPage({ params }: { params: { sessionId: string } }
           </div>
         )}
       </div>
+      )}
 
       {/* Public Display Consent Modal */}
       {showLiveConsent && (

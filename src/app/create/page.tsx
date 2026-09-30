@@ -94,7 +94,9 @@ export default function OperatorCreatePage() {
         body: JSON.stringify({
           sessionId,
           garmentAnalysis,
-          personAnalysis
+          personAnalysis,
+          personPhoto,
+          garmentPhotos
         })
       });
       const data = await res.json();

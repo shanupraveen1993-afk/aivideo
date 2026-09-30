@@ -40,16 +40,31 @@ export async function POST(req: NextRequest) {
       }
 
       try {
-        const videoResponse = await ai.models.generateVideos({
+        const videoConfig: any = {
+          aspectRatio: '9:16',
+          numberOfVideos: 1,
+          durationSeconds: 6,
+          resolution: '720p'
+        };
+
+        const generateParams: any = {
           model: AI_CONFIG.GEMINI_VIDEO_MODEL || 'veo-3.1-generate-preview',
           prompt,
-          config: {
-            aspectRatio: '9:16',
-            numberOfVideos: 1,
-            durationSeconds: 6
-          }
-        });
+          config: videoConfig
+        };
 
+        // Pass approved master image as actual image input to Veo
+        if (masterImageUrl && masterImageUrl.startsWith('data:image')) {
+          const masterBase64 = masterImageUrl.split(',')[1];
+          generateParams.image = {
+            inlineData: {
+              mimeType: 'image/jpeg',
+              data: masterBase64
+            }
+          };
+        }
+
+        const videoResponse = await ai.models.generateVideos(generateParams);
         operationName = videoResponse.name || null;
       } catch (veoError: any) {
         console.error('Veo Video Start Error:', veoError);
