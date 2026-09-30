@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
             });
           }
 
-          // Operation complete: download generated MP4 to temp file on Vercel
+          // Operation complete: download generated MP4 to temp file using official ai.files.download({ file: generatedVideo, downloadPath: tempFilePath })
           const generatedVideo = operation.response?.generatedVideos?.[0]?.video;
           let fileBuffer: Buffer | null = null;
 
@@ -98,68 +98,83 @@ export async function GET(req: NextRequest) {
               const tempFilePath = path.join('/tmp', tempFileName);
 
               try {
-                const videoRef = generatedVideo.name || generatedVideo.uri || generatedVideo;
-                await (ai.files as any).download({
-                  file: videoRef,
-                  destination: tempFilePath
+                // Official @google/genai SDK file download
+                await ai.files.download({
+                  file: generatedVideo as any,
+                  downloadPath: tempFilePath
                 });
 
                 if (fs.existsSync(tempFilePath)) {
                   fileBuffer = fs.readFileSync(tempFilePath);
                   try { fs.unlinkSync(tempFilePath); } catch (_) {}
+                } else {
+                  console.error('Temp MP4 file was not created at:', tempFilePath);
                 }
-              } catch (dlErr) {
-                console.warn('ai.files.download temp file error:', dlErr);
-                if (generatedVideo.uri && generatedVideo.uri.startsWith('http')) {
-                  const fetchRes = await fetch(generatedVideo.uri);
-                  if (fetchRes.ok) {
-                    fileBuffer = Buffer.from(await fetchRes.arrayBuffer());
-                  }
+              } catch (dlErr: any) {
+                console.error('ai.files.download error:', dlErr);
+                if (fs.existsSync(tempFilePath)) {
+                  try { fs.unlinkSync(tempFilePath); } catch (_) {}
                 }
               }
             }
           }
 
-          if (fileBuffer) {
-            const storagePath = `sessions/${targetSessionId}/video/final.mp4`;
-
-            const bucket = getStorageBucket();
-            if (bucket) {
-              const file = bucket.file(storagePath);
-              await file.save(fileBuffer, { contentType: 'video/mp4', public: false });
-              const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 24 * 60 * 60 * 1000 });
-              videoUrl = signedUrl;
-            } else {
-              videoUrl = `data:video/mp4;base64,${fileBuffer.toString('base64')}`;
-            }
-
-            status = 'ready';
-
-            // Store in Firestore: videos/video_{sessionId} and update session
+          if (!fileBuffer) {
+            status = 'failed';
             if (db) {
-              await db.collection('videos').doc(`video_${targetSessionId}`).set({
-                id: `video_${targetSessionId}`,
-                sessionId: targetSessionId,
-                storagePath: `sessions/${targetSessionId}/video/final.mp4`,
-                status: 'ready',
-                createdAt: new Date().toISOString()
-              }, { merge: true });
-
               await db.collection('sessions').doc(targetSessionId).set({
-                videoStatus: 'ready',
-                videoUrl,
+                videoStatus: 'failed',
+                videoError: 'Failed to download generated Veo video output',
                 updatedAt: new Date().toISOString()
               }, { merge: true });
-            } else {
-              const mockStore = getMockStore();
-              mockStore.videos.set(`video_${targetSessionId}`, {
-                id: `video_${targetSessionId}`,
-                sessionId: targetSessionId,
-                storagePath: `sessions/${targetSessionId}/video/final.mp4`,
-                status: 'ready',
-                createdAt: new Date().toISOString()
-              });
             }
+            return NextResponse.json({
+              success: false,
+              jobId,
+              sessionId: targetSessionId,
+              status: 'failed',
+              error: 'Veo video download failed.'
+            }, { status: 500 });
+          }
+
+          const storagePath = `sessions/${targetSessionId}/video/final.mp4`;
+
+          const bucket = getStorageBucket();
+          if (bucket) {
+            const file = bucket.file(storagePath);
+            await file.save(fileBuffer, { contentType: 'video/mp4', public: false });
+            const [signedUrl] = await file.getSignedUrl({ action: 'read', expires: Date.now() + 24 * 60 * 60 * 1000 });
+            videoUrl = signedUrl;
+          } else {
+            videoUrl = `data:video/mp4;base64,${fileBuffer.toString('base64')}`;
+          }
+
+          status = 'ready';
+
+          // Store in Firestore: videos/video_{sessionId} and update session
+          if (db) {
+            await db.collection('videos').doc(`video_${targetSessionId}`).set({
+              id: `video_${targetSessionId}`,
+              sessionId: targetSessionId,
+              storagePath: `sessions/${targetSessionId}/video/final.mp4`,
+              status: 'ready',
+              createdAt: new Date().toISOString()
+            }, { merge: true });
+
+            await db.collection('sessions').doc(targetSessionId).set({
+              videoStatus: 'ready',
+              videoUrl,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          } else {
+            const mockStore = getMockStore();
+            mockStore.videos.set(`video_${targetSessionId}`, {
+              id: `video_${targetSessionId}`,
+              sessionId: targetSessionId,
+              storagePath: `sessions/${targetSessionId}/video/final.mp4`,
+              status: 'ready',
+              createdAt: new Date().toISOString()
+            });
           }
         } catch (opErr: any) {
           console.error('Veo Operation Polling Error:', opErr);

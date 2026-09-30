@@ -68,10 +68,13 @@ Preserve exact face identity, hairstyle, dress color, embroidery details, and he
 
         let imageBase64: string | null = null;
 
-        // Multimodal image synthesis passing person & garment reference photo parts
+        // Multimodal image synthesis passing person & garment reference photo parts with explicit 9:16 aspect ratio
         const genResponse = await ai.models.generateContent({
           model: AI_CONFIG.GEMINI_IMAGE_MODEL || 'gemini-3.1-flash-image',
-          contents
+          contents,
+          config: {
+            aspectRatio: '9:16'
+          } as any
         });
 
         const candidate = genResponse.candidates?.[0];
