@@ -32,16 +32,20 @@ async function cleanupExpiredReservations(db: any) {
 export async function GET(req: NextRequest) {
   try {
     const db = getDb();
-    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
 
     if (db) {
       await cleanupExpiredReservations(db);
+
+      const nowTimestamp = Timestamp.fromMillis(nowMs);
 
       const result = await db.runTransaction(async (transaction: any) => {
         const queueQuery = db.collection('liveQueue')
           .where('screenId', '==', 'maharaja-main')
           .where('status', '==', 'queued')
-          .orderBy('createdAt', 'asc')
+          .where('playAt', '<=', nowTimestamp)
+          .orderBy('playAt', 'asc')
           .limit(1);
 
         const queueSnapshot = await transaction.get(queueQuery);
@@ -51,6 +55,15 @@ export async function GET(req: NextRequest) {
 
         const queueDoc = queueSnapshot.docs[0];
         const queueData = queueDoc.data();
+
+        // Extra server-side timestamp guard
+        if (queueData.playAt && typeof queueData.playAt.toMillis === 'function') {
+          if (queueData.playAt.toMillis() > nowMs) {
+            return { status: 'idle' };
+          }
+        } else if (queueData.playAtMs && queueData.playAtMs > nowMs) {
+          return { status: 'idle' };
+        }
 
         const videoDocRef = db.collection('videos').doc(queueData.videoId);
         const videoDoc = await transaction.get(videoDocRef);
@@ -101,9 +114,15 @@ export async function GET(req: NextRequest) {
         }
       });
 
-      const nextItem = mockStore.liveQueue.find(
-        (item: MockQueueItem) => item.screenId === 'maharaja-main' && item.status === 'queued'
-      );
+      // Find first queued item where playAt <= nowMs
+      const nextItem = mockStore.liveQueue.find((item: MockQueueItem) => {
+        if (item.screenId !== 'maharaja-main' || item.status !== 'queued') return false;
+        
+        if (item.playAtMs && item.playAtMs > nowMs) return false;
+        if (item.playAt && new Date(item.playAt).getTime() > nowMs) return false;
+
+        return true;
+      });
 
       if (!nextItem) {
         return NextResponse.json({ status: 'idle' });

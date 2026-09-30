@@ -64,6 +64,8 @@ export type MockQueueItem = {
   repeatCount: number;
   timesPlayed: number;
   createdAt: string;
+  playAt?: string;
+  playAtMs?: number;
   reservedAt?: string;
   reservedByScreenId?: string;
   reservationId?: string;

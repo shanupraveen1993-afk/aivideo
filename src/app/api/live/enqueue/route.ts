@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getDb, getMockStore } from '@/lib/firebase/admin';
+import { Timestamp } from 'firebase-admin/firestore';
 
 export async function POST(req: NextRequest) {
   try {
@@ -7,7 +8,11 @@ export async function POST(req: NextRequest) {
     const { sessionId = 'sample-session', videoId = 'sample-video' } = body;
 
     const queueId = `queue_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
-    const nowIso = new Date().toISOString();
+    const nowMs = Date.now();
+    const nowIso = new Date(nowMs).toISOString();
+    const playAtMs = nowMs + 5000;
+    const playAtTimestamp = Timestamp.fromMillis(playAtMs);
+    const playAtIso = new Date(playAtMs).toISOString();
 
     const queueItem = {
       id: queueId,
@@ -18,7 +23,10 @@ export async function POST(req: NextRequest) {
       priority: 1,
       repeatCount: 1,
       timesPlayed: 0,
-      createdAt: nowIso
+      createdAt: nowIso,
+      playAt: playAtTimestamp,
+      playAtIso,
+      playAtMs
     };
 
     const db = getDb();
@@ -26,12 +34,16 @@ export async function POST(req: NextRequest) {
       await db.collection('liveQueue').doc(queueId).set(queueItem);
     } else {
       const mockStore = getMockStore();
-      mockStore.liveQueue.push(queueItem);
+      mockStore.liveQueue.push({
+        ...queueItem,
+        playAt: playAtIso
+      });
     }
 
     return NextResponse.json({
       success: true,
       queueId,
+      playAt: playAtIso,
       message: 'Your Maharaja Diwali moment has been added to the big screen.'
     });
   } catch (error: any) {
