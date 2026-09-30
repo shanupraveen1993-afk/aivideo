@@ -1,15 +1,15 @@
 'use client';
 
-import React, { useState, useEffect, use } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { Download, Tv, Sparkles, CheckCircle2, RotateCcw, Flame, ShieldCheck, AlertCircle } from 'lucide-react';
 
-export default function ResultPage({ params }: { params: Promise<{ sessionId: string }> | { sessionId: string } }) {
-  const urlParams = useParams();
-  // Unwrap params safely for Next.js 15/16 App Router
-  const resolvedParams = params && typeof (params as any).then === 'function' ? use(params as Promise<{ sessionId: string }>) : (params as { sessionId: string });
-  const sessionId = (urlParams?.sessionId as string) || resolvedParams?.sessionId || 'sample-session';
+export default function ResultPage() {
+  const urlParams = useParams<{ sessionId?: string }>();
+  const rawSessionId = urlParams?.sessionId;
+  const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
+
   const [showLiveConsent, setShowLiveConsent] = useState(false);
   const [publicConsent, setPublicConsent] = useState(true);
   const [isGoingLive, setIsGoingLive] = useState(false);
@@ -18,6 +18,11 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
   const [queueId, setQueueId] = useState<string | null>(null);
   const [liveQueueStatus, setLiveQueueStatus] = useState<'queued' | 'reserved' | 'playing' | 'completed' | 'playback_failed'>('queued');
+
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [videoId, setVideoId] = useState<string>(sessionId ? `video_${sessionId}` : '');
+  const [videoStatus, setVideoStatus] = useState<'processing' | 'ready'>('processing');
+  const [isLoadingVideo, setIsLoadingVideo] = useState(true);
 
   useEffect(() => {
     if (!liveSuccess) return;
@@ -70,12 +75,8 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
     };
   }, [liveSuccess, queueId, countdownSeconds]);
 
-  const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [videoId, setVideoId] = useState(`video_${sessionId}`);
-  const [videoStatus, setVideoStatus] = useState<'processing' | 'ready'>('processing');
-  const [isLoadingVideo, setIsLoadingVideo] = useState(true);
-
   useEffect(() => {
+    if (!sessionId) return;
     let isMounted = true;
     let timer: NodeJS.Timeout;
 
@@ -111,6 +112,20 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
     };
   }, [sessionId]);
 
+  // Explicit error state if sessionId is missing — NEVER substitute sample-session
+  if (!sessionId) {
+    return (
+      <main className="min-h-screen bg-[#070609] text-[#F8F5EE] p-6 flex flex-col items-center justify-center text-center font-sans max-w-lg mx-auto">
+        <AlertCircle className="w-12 h-12 text-red-500 mb-4" />
+        <h1 className="text-xl font-serif font-bold text-[#F3E5AB] uppercase mb-2">Invalid Session</h1>
+        <p className="text-sm text-gray-400 mb-6">No valid session ID was provided in the URL.</p>
+        <Link href="/create" className="px-6 py-3 bg-[#6e0d1f] border border-[#D4AF37] text-[#F3E5AB] rounded-xl text-sm font-semibold uppercase tracking-wider">
+          Create New Video
+        </Link>
+      </main>
+    );
+  }
+
   const handleDownload = () => {
     if (!videoUrl) return;
     const a = document.createElement('a');
@@ -132,7 +147,7 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           sessionId,
-          videoId
+          videoId: videoId || `video_${sessionId}`
         })
       });
 
@@ -151,7 +166,6 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
       setIsGoingLive(false);
     }
   };
-
 
   return (
     <main className="min-h-screen bg-[#070609] text-[#F8F5EE] p-4 md:p-8 font-sans max-w-lg mx-auto relative">
@@ -266,7 +280,6 @@ export default function ResultPage({ params }: { params: Promise<{ sessionId: st
 
           </div>
         )}
-
 
         {liveError && (
           <div className="p-4 rounded-xl bg-red-950/60 border border-red-500/50 text-red-300 text-xs text-left flex items-start gap-3">
